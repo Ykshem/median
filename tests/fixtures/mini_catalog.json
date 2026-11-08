@@ -1,0 +1,304 @@
+{
+  "_comment": "20 works, hand-written synopses (not copied from TMDB/Open Library). Vectors are NOT stored here: tests/fixtures/catalog.py generates them from `clusters` + `axes`. Cluster layout: haunted, cozy, epic and literary each hold 2 movies + 2 books. 'adventure' (movies only) sits near 'scifi' (books only) so cross-media neighbours are predictable. The Jurassic Park pair is an adaptation whose two halves sit in DIFFERENT clusters (link-only candidates). The Hobbit pair is deliberately NOT linked (Wikidata covers only about a third of adaptations).",
+  "axes": ["dread", "whimsy", "quest", "grief", "science", "momentum"],
+  "clusters": {
+    "haunted":    {"dread": 1.0, "grief": 0.2},
+    "cozy":       {"whimsy": 1.0, "momentum": 0.2},
+    "epic":       {"quest": 1.0, "momentum": 0.3},
+    "literary":   {"grief": 1.0},
+    "scifi":      {"science": 1.0, "dread": 0.3, "momentum": 0.4},
+    "adventure":  {"momentum": 1.0, "science": 0.6, "quest": 0.2}
+  },
+  "works": [
+    {
+      "id": 1, "media_type": "movie", "title": "The Shining", "year": 1980,
+      "creators": ["Stanley Kubrick"], "cluster": "haunted", "popularity": 0.97,
+      "synopsis": "A struggling writer takes a winter caretaker job at a huge, isolated mountain hotel with his wife and young son. As snow closes the roads, the hotel's strange history seems to take hold of him.",
+      "subjects": ["horror", "psychological", "hotel", "isolation"],
+      "card": {
+        "logline": "A family stranded in a vast empty building over a snowbound winter finds that its past is pressing in on the father.",
+        "themes": ["isolation", "madness", "family strain", "addiction"],
+        "mood": ["eerie", "claustrophobic", "tense", "unsettling"],
+        "tone": "chilling and ambiguous", "setting": "a remote mountain lodge, deep winter",
+        "pacing": "slow", "intensity": "high", "audience": "adult",
+        "hooks": ["haunted building", "slow descent into madness", "child with a strange gift"]
+      }
+    },
+    {
+      "id": 2, "media_type": "movie", "title": "The Haunting", "year": 1963,
+      "creators": ["Robert Wise"], "cluster": "haunted", "popularity": 0.55,
+      "synopsis": "A doctor invites several guests with unusual pasts to stay in a notorious old mansion to study supernatural activity. The shy, lonely woman among them begins to feel the house is calling to her.",
+      "subjects": ["horror", "ghost story", "mansion"],
+      "card": {
+        "logline": "A lonely woman drawn into a notorious old house starts to feel it wants her to stay.",
+        "themes": ["loneliness", "belonging", "fear", "obsession"],
+        "mood": ["eerie", "uneasy", "gothic", "suspenseful"],
+        "tone": "restrained and ghostly", "setting": "an isolated mansion, mid-20th-century",
+        "pacing": "slow", "intensity": "medium", "audience": "adult",
+        "hooks": ["haunted house", "fragile protagonist", "skeptic turned believer"]
+      }
+    },
+    {
+      "id": 3, "media_type": "movie", "title": "Knives Out", "year": 2019,
+      "creators": ["Rian Johnson"], "cluster": "cozy", "popularity": 0.93,
+      "synopsis": "When a wealthy mystery writer dies after his birthday party, a polite private detective questions his quarrelsome family. The patriarch's devoted nurse becomes the unlikely key to the case.",
+      "subjects": ["mystery", "comedy", "whodunit", "family"],
+      "card": {
+        "logline": "A genteel investigator untangles a feuding family's secrets after their patriarch's sudden death.",
+        "themes": ["family secrets", "greed", "class", "loyalty"],
+        "mood": ["playful", "witty", "cozy", "clever"],
+        "tone": "sharp and comedic", "setting": "a sprawling country mansion, present day",
+        "pacing": "medium", "intensity": "low", "audience": "adult",
+        "hooks": ["whodunit", "gathered suspects", "unlikely sleuth"]
+      }
+    },
+    {
+      "id": 4, "media_type": "movie", "title": "Murder on the Orient Express", "year": 1974,
+      "creators": ["Sidney Lumet"], "cluster": "cozy", "popularity": 0.7,
+      "synopsis": "A famous detective is stranded on a snowbound luxury train when a wealthy passenger is found stabbed. Every traveler in the carriage has something to hide.",
+      "subjects": ["mystery", "whodunit", "train", "period"],
+      "card": {
+        "logline": "A meticulous detective must find the killer among a carriage of elegant strangers trapped by snow.",
+        "themes": ["justice", "secrets", "revenge", "morality"],
+        "mood": ["elegant", "suspenseful", "clever", "cozy"],
+        "tone": "polished and wry", "setting": "a luxury train stranded in snow, 1930s Europe",
+        "pacing": "medium", "intensity": "low", "audience": "adult",
+        "hooks": ["closed circle of suspects", "famous detective", "twist ending"]
+      }
+    },
+    {
+      "id": 5, "media_type": "movie", "title": "The Fellowship of the Ring", "year": 2001,
+      "creators": ["Peter Jackson"], "cluster": "epic", "popularity": 0.99,
+      "synopsis": "A humble young man inherits a ring of terrible power and sets out with eight companions to destroy it before a dark lord can reclaim it.",
+      "subjects": ["fantasy", "adventure", "quest"],
+      "card": {
+        "logline": "An unassuming young traveler and a band of allies set out to destroy a corrupting treasure before an ancient evil finds it.",
+        "themes": ["friendship", "temptation", "courage", "sacrifice", "good versus evil"],
+        "mood": ["epic", "adventurous", "solemn", "hopeful"],
+        "tone": "earnest and sweeping", "setting": "a vast fantasy realm of green countryside, forests and mountains",
+        "pacing": "medium", "intensity": "medium", "audience": "young_adult",
+        "hooks": ["perilous quest", "fellowship of unlikely allies", "corrupting artifact"]
+      }
+    },
+    {
+      "id": 6, "media_type": "movie", "title": "The Hobbit: An Unexpected Journey", "year": 2012,
+      "creators": ["Peter Jackson"], "cluster": "epic", "popularity": 0.9,
+      "synopsis": "A comfort-loving homebody is swept into a company of dwarves journeying to reclaim their lost mountain home from a dragon.",
+      "subjects": ["fantasy", "adventure", "quest"],
+      "card": {
+        "logline": "A reluctant homebody joins a band of exiles on a long journey to win back their lost homeland.",
+        "themes": ["courage", "home", "greed", "friendship"],
+        "mood": ["adventurous", "whimsical", "warm", "epic"],
+        "tone": "light-hearted and sweeping", "setting": "a vast fantasy realm of rolling hills, caves and mountains",
+        "pacing": "medium", "intensity": "medium", "audience": "young_adult",
+        "hooks": ["unlikely hero", "band of exiles", "dragon"]
+      }
+    },
+    {
+      "id": 7, "media_type": "movie", "title": "Manchester by the Sea", "year": 2016,
+      "creators": ["Kenneth Lonergan"], "cluster": "literary", "popularity": 0.8,
+      "synopsis": "After his brother dies, a withdrawn handyman returns to his hometown to become guardian of his teenage nephew and must face the tragedy that drove him away.",
+      "subjects": ["drama", "grief", "family"],
+      "card": {
+        "logline": "A man shattered by loss is pulled back to his hometown to care for a grieving teenager.",
+        "themes": ["grief", "guilt", "family duty", "healing"],
+        "mood": ["melancholic", "somber", "quiet", "tender"],
+        "tone": "restrained and bleak", "setting": "a small New England fishing town, present day",
+        "pacing": "slow", "intensity": "medium", "audience": "adult",
+        "hooks": ["return to hometown", "unlikely guardian", "unspoken past"]
+      }
+    },
+    {
+      "id": 8, "media_type": "movie", "title": "The Remains of the Day", "year": 1993,
+      "creators": ["James Ivory"], "cluster": "literary", "popularity": 0.6,
+      "synopsis": "A devoted English butler, proud of his perfect service, takes a road trip to visit a former housekeeper and slowly confronts the love and principles he sacrificed to his employer.",
+      "subjects": ["drama", "period", "romance", "class"],
+      "card": {
+        "logline": "A dutiful servant looks back on a lifetime of loyalty and the love he never allowed himself.",
+        "themes": ["duty", "regret", "repression", "loyalty"],
+        "mood": ["melancholic", "restrained", "poignant", "quiet"],
+        "tone": "gentle and wistful", "setting": "an English country estate, 1930s with a 1950s frame",
+        "pacing": "slow", "intensity": "low", "audience": "adult",
+        "hooks": ["unreliable self-image", "looking back on a life", "unspoken love"]
+      }
+    },
+    {
+      "id": 9, "media_type": "movie", "title": "Jurassic Park", "year": 1993,
+      "creators": ["Steven Spielberg"], "cluster": "adventure", "popularity": 0.98,
+      "synopsis": "A wealthy entrepreneur opens a theme park populated by cloned dinosaurs. When a storm and sabotage knock out the security systems, a small group of visitors fights to survive.",
+      "subjects": ["adventure", "science fiction", "dinosaurs"],
+      "card": {
+        "logline": "A group of visitors must outrun escaped prehistoric predators when a spectacular wildlife park's safeguards fail.",
+        "themes": ["hubris", "nature versus technology", "survival", "wonder"],
+        "mood": ["thrilling", "awe-inspiring", "tense", "adventurous"],
+        "tone": "exhilarating", "setting": "a remote tropical island park, late 20th century",
+        "pacing": "fast", "intensity": "medium", "audience": "young_adult",
+        "hooks": ["escape from a failing system", "resurrected creatures", "cautionary science"]
+      }
+    },
+    {
+      "id": 10, "media_type": "movie", "title": "Mad Max: Fury Road", "year": 2015,
+      "creators": ["George Miller"], "cluster": "adventure", "popularity": 0.85,
+      "synopsis": "In a desert wasteland, a hardened driver flees a tyrant with five captive women, joined by a drifter, in a relentless chase across the sands.",
+      "subjects": ["action", "post-apocalyptic", "chase"],
+      "card": {
+        "logline": "In a ruined desert world, a fugitive driver and her allies flee a tyrant in a non-stop pursuit.",
+        "themes": ["freedom", "survival", "redemption", "rebellion"],
+        "mood": ["frenetic", "gritty", "explosive", "defiant"],
+        "tone": "relentless and operatic", "setting": "a post-apocalyptic desert wasteland",
+        "pacing": "fast", "intensity": "high", "audience": "adult",
+        "hooks": ["one long chase", "tyrant's pursuit", "found alliance"]
+      }
+    },
+    {
+      "id": 11, "media_type": "book", "title": "The Shining", "year": 1977,
+      "creators": ["Stephen King"], "cluster": "haunted", "popularity": 0.96,
+      "synopsis": "A recovering alcoholic and aspiring writer accepts a winter caretaker post at a grand mountain hotel and brings his family. The building's malevolent presence feeds on his weaknesses and on his young son's psychic gift.",
+      "subjects": ["horror", "supernatural", "addiction", "hotel"],
+      "card": {
+        "logline": "A father struggling with his demons takes his family to an empty grand lodge for the winter, where something hungry waits.",
+        "themes": ["addiction", "isolation", "family strain", "inherited violence"],
+        "mood": ["dreadful", "claustrophobic", "tense", "haunting"],
+        "tone": "dread-soaked and tragic", "setting": "a remote mountain lodge, deep winter",
+        "pacing": "medium", "intensity": "high", "audience": "adult",
+        "hooks": ["haunted building", "child with a strange gift", "weak man tempted"]
+      }
+    },
+    {
+      "id": 12, "media_type": "book", "title": "The Haunting of Hill House", "year": 1959,
+      "creators": ["Shirley Jackson"], "cluster": "haunted", "popularity": 0.8,
+      "synopsis": "Four people gather at a reputedly cursed mansion at the invitation of a researcher of the paranormal. A fragile young woman finds the house responding to her in ways the others cannot see.",
+      "subjects": ["horror", "gothic", "ghost story", "mansion"],
+      "card": {
+        "logline": "A fragile young woman joins a paranormal study in a cursed mansion and finds the house responding to her alone.",
+        "themes": ["loneliness", "belonging", "fear", "sanity"],
+        "mood": ["eerie", "uneasy", "gothic", "creeping"],
+        "tone": "elegant and unsettling", "setting": "an isolated mansion, mid-20th-century",
+        "pacing": "slow", "intensity": "medium", "audience": "adult",
+        "hooks": ["haunted house", "fragile protagonist", "ambiguous haunting"]
+      }
+    },
+    {
+      "id": 13, "media_type": "book", "title": "The Thursday Murder Club", "year": 2020,
+      "creators": ["Richard Osman"], "cluster": "cozy", "popularity": 0.9,
+      "synopsis": "Four retirees who meet weekly in a peaceful retirement village to discuss cold cases suddenly find a real murder on their doorstep and decide to solve it themselves.",
+      "subjects": ["mystery", "cozy", "humor", "retirement"],
+      "card": {
+        "logline": "A group of sharp-witted retirees investigates a real killing in their quiet village.",
+        "themes": ["friendship", "aging", "justice", "secrets"],
+        "mood": ["cozy", "witty", "warm", "gentle"],
+        "tone": "gently comic", "setting": "an English retirement village, present day",
+        "pacing": "medium", "intensity": "low", "audience": "adult",
+        "hooks": ["amateur sleuths", "cold cases", "whodunit"]
+      }
+    },
+    {
+      "id": 14, "media_type": "book", "title": "Murder on the Orient Express", "year": 1934,
+      "creators": ["Agatha Christie"], "cluster": "cozy", "popularity": 0.88,
+      "synopsis": "A famous detective is stranded on a snowbound luxury train when a wealthy passenger is found stabbed. Every traveler in the carriage has something to hide.",
+      "subjects": ["mystery", "whodunit", "train", "classic"],
+      "card": {
+        "logline": "A meticulous detective must find the killer among a carriage of elegant strangers trapped by snow.",
+        "themes": ["justice", "secrets", "morality", "revenge"],
+        "mood": ["elegant", "suspenseful", "clever", "cozy"],
+        "tone": "polished and wry", "setting": "a luxury train stranded in snow, 1930s Europe",
+        "pacing": "medium", "intensity": "low", "audience": "adult",
+        "hooks": ["closed circle of suspects", "famous detective", "twist ending"]
+      }
+    },
+    {
+      "id": 15, "media_type": "book", "title": "The Fellowship of the Ring", "year": 1954,
+      "creators": ["J.R.R. Tolkien"], "cluster": "epic", "popularity": 0.97,
+      "synopsis": "A humble young man inherits a ring of terrible power and sets out with eight companions to destroy it before a dark lord can reclaim it.",
+      "subjects": ["fantasy", "epic", "quest", "classic"],
+      "card": {
+        "logline": "An unassuming young traveler and a band of allies set out to destroy a corrupting treasure before an ancient evil finds it.",
+        "themes": ["friendship", "temptation", "courage", "sacrifice", "good versus evil"],
+        "mood": ["epic", "adventurous", "solemn", "hopeful"],
+        "tone": "earnest and mythic", "setting": "a vast fantasy realm of green countryside, forests and mountains",
+        "pacing": "slow", "intensity": "medium", "audience": "young_adult",
+        "hooks": ["perilous quest", "fellowship of unlikely allies", "corrupting artifact"]
+      }
+    },
+    {
+      "id": 16, "media_type": "book", "title": "The Hobbit", "year": 1937,
+      "creators": ["J.R.R. Tolkien"], "cluster": "epic", "popularity": 0.95,
+      "synopsis": "A comfort-loving homebody is swept into a company of dwarves journeying to reclaim their lost mountain home from a dragon.",
+      "subjects": ["fantasy", "adventure", "quest", "children's"],
+      "card": {
+        "logline": "A reluctant homebody joins a band of exiles on a long journey to win back their lost homeland.",
+        "themes": ["courage", "home", "greed", "friendship"],
+        "mood": ["adventurous", "whimsical", "warm", "playful"],
+        "tone": "playful and warm", "setting": "a vast fantasy realm of rolling hills, caves and mountains",
+        "pacing": "medium", "intensity": "medium", "audience": "children",
+        "hooks": ["unlikely hero", "band of exiles", "dragon"]
+      }
+    },
+    {
+      "id": 17, "media_type": "book", "title": "Gilead", "year": 2004,
+      "creators": ["Marilynne Robinson"], "cluster": "literary", "popularity": 0.5,
+      "synopsis": "An elderly small-town minister writes a long letter to his young son, reflecting on faith, family history and the quiet beauty of ordinary days as his life draws to a close.",
+      "subjects": ["literary fiction", "faith", "family", "epistolary"],
+      "card": {
+        "logline": "A dying elder reflects in a letter to his young son on faith, family and the grace of everyday life.",
+        "themes": ["faith", "legacy", "forgiveness", "grief"],
+        "mood": ["contemplative", "tender", "melancholic", "quiet"],
+        "tone": "meditative and luminous", "setting": "a small Iowa town, 1950s",
+        "pacing": "slow", "intensity": "low", "audience": "adult",
+        "hooks": ["letter to a child", "quiet reflection", "estranged family"]
+      }
+    },
+    {
+      "id": 18, "media_type": "book", "title": "The Remains of the Day", "year": 1989,
+      "creators": ["Kazuo Ishiguro"], "cluster": "literary", "popularity": 0.75,
+      "synopsis": "A devoted English butler, proud of his perfect service, takes a motoring trip to visit a former housekeeper and slowly confronts the love and principles he sacrificed to his employer.",
+      "subjects": ["literary fiction", "period", "class", "regret"],
+      "card": {
+        "logline": "A dutiful servant looks back on a lifetime of loyalty and the love he never allowed himself.",
+        "themes": ["duty", "regret", "repression", "loyalty"],
+        "mood": ["melancholic", "restrained", "poignant", "quiet"],
+        "tone": "gentle and wistful", "setting": "an English country estate, 1930s with a 1950s frame",
+        "pacing": "slow", "intensity": "low", "audience": "adult",
+        "hooks": ["unreliable self-image", "looking back on a life", "unspoken love"]
+      }
+    },
+    {
+      "id": 19, "media_type": "book", "title": "Jurassic Park", "year": 1990,
+      "creators": ["Michael Crichton"], "cluster": "scifi", "popularity": 0.92,
+      "synopsis": "A billionaire's island park of cloned dinosaurs is nearly ready to open when experts are invited to endorse it. A failing computer system and a tropical storm turn the attraction into a deadly trap.",
+      "subjects": ["science fiction", "techno-thriller", "genetics"],
+      "card": {
+        "logline": "Scientists and visitors discover that a park of resurrected creatures is sliding out of its creators' control.",
+        "themes": ["hubris", "chaos", "ethics of science", "survival"],
+        "mood": ["tense", "ominous", "clinical", "suspenseful"],
+        "tone": "cold and cautionary", "setting": "a remote tropical island park, late 20th century",
+        "pacing": "fast", "intensity": "high", "audience": "adult",
+        "hooks": ["science gone wrong", "systems failure", "cautionary experts"]
+      }
+    },
+    {
+      "id": 20, "media_type": "book", "title": "The Andromeda Strain", "year": 1969,
+      "creators": ["Michael Crichton"], "cluster": "scifi", "popularity": 0.65,
+      "synopsis": "A team of scientists works in an underground laboratory to identify a deadly microbe brought to Earth by a crashed satellite, racing the clock before it spreads.",
+      "subjects": ["science fiction", "techno-thriller", "medical"],
+      "card": {
+        "logline": "Specialists sealed in a secret lab race to understand a lethal organism before it escapes.",
+        "themes": ["scientific hubris", "containment", "survival", "ethics of science"],
+        "mood": ["clinical", "tense", "ominous", "methodical"],
+        "tone": "cold and procedural", "setting": "an underground research facility, Cold War era",
+        "pacing": "medium", "intensity": "medium", "audience": "adult",
+        "hooks": ["race against contagion", "expert team", "sealed facility"]
+      }
+    }
+  ],
+  "links": [
+    {"from_work": 1, "to_work": 11, "link_type": "adaptation_of", "source": "wikidata", "confidence": 1.0, "verified": 1},
+    {"from_work": 2, "to_work": 12, "link_type": "adaptation_of", "source": "wikidata", "confidence": 1.0, "verified": 1},
+    {"from_work": 4, "to_work": 14, "link_type": "adaptation_of", "source": "wikidata", "confidence": 1.0, "verified": 1},
+    {"from_work": 5, "to_work": 15, "link_type": "adaptation_of", "source": "wikidata", "confidence": 1.0, "verified": 1},
+    {"from_work": 9, "to_work": 19, "link_type": "adaptation_of", "source": "wikidata", "confidence": 1.0, "verified": 1},
+    {"from_work": 8, "to_work": 18, "link_type": "adaptation_of", "source": "tmdb_credits", "confidence": 0.75, "verified": 0},
+    {"from_work": 15, "to_work": 16, "link_type": "same_franchise", "source": "wikidata", "confidence": 1.0, "verified": 1},
+    {"from_work": 19, "to_work": 20, "link_type": "same_creator", "source": "wikidata", "confidence": 0.9, "verified": 1}
+  ]
+}

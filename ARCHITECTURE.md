@@ -165,7 +165,8 @@ CREATE TABLE IF NOT EXISTS llm_usage (
 
 **Personas** replace user accounts. `db/seed_personas.sql` creates 3–4 personas (e.g. "Horror fan",
 "Cozy mystery reader", "Epic fantasy fan", "Literary drama"), each with about 8 pre-rated works,
-so taste-based recommendations work from the first click.
+so taste-based recommendations work from the first click. (M0 seeds the persona rows only; the
+pre-rated works are added in M2, once a catalog exists to rate.)
 
 ---
 
@@ -175,7 +176,16 @@ so taste-based recommendations work from the first click.
   1. opens the file (default from `MEDIAN_DB_PATH`),
   2. `enable_load_extension(True)` → `sqlite_vec.load(conn)` → `enable_load_extension(False)`,
   3. sets `PRAGMA foreign_keys=ON`, `PRAGMA journal_mode=WAL`, `row_factory=sqlite3.Row`.
-- Vectors are written with `sqlite_vec.serialize_float32(list[float])`.
+- `init_db(path=None, seed=True)` applies `db/schema.sql`, writes `meta.schema_version` and seeds the
+  personas (idempotent). If an existing file has a different `SCHEMA_VERSION` it raises
+  `SchemaVersionError` (rebuild or get a matching `median.db`). `ensure_db()` calls `init_db` only
+  when the file is missing, so a fresh clone can start the app before any catalog exists; a shared
+  `median.db` copied into `data/` is used untouched.
+- `works_fts` is an external-content FTS5 table: call `median.db.rebuild_fts(conn)` after loading
+  or changing `works` (the pipeline's `index` step does this).
+- Vectors are written with `sqlite_vec.serialize_float32(list[float])` (`median.db.vec_to_blob`).
+- Verified on sqlite-vec 0.1.9 (pinned): `distance_metric=cosine` and the `media_type` metadata
+  filter in the KNN query below both work, and `tests/test_db.py` covers them.
 - KNN query pattern:
 
   ```sql
@@ -356,7 +366,12 @@ step 3, so overlap is demo-able in development.
 | `pages/6_Credits.py` | TMDB attribution + logo, Open Library and Wikidata credits |
 
 The sidebar persona picker appears on every page. Shared rendering lives in `app/components.py`
-(work card, recommendation card, rating widget).
+(page setup, persona picker, per-rerun `db_conn()`; later the work card, recommendation card and
+rating widget).
+
+`pyproject.toml` installs `median`, `pipeline` and `app` as an editable package (`uv sync`), so
+pages import with `from app.components import ...` and `from median... import ...`. Streamlit only
+puts the script's own folder on `sys.path`, so without the install `median` would not be importable.
 
 ---
 

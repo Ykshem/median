@@ -7,13 +7,13 @@ Rough timing for a ~3-week build: M0–M1 in week 1, M2–M3 in week 2, M4–M5 
 
 ## M0 — Foundation
 Owner: _TBD_
-- [ ] `pyproject.toml` with deps: streamlit, anthropic, openai, sqlite-vec, pydantic, httpx,
+- [x] `pyproject.toml` with deps: streamlit, anthropic, openai, sqlite-vec, pydantic, httpx,
       tenacity, rapidfuzz, python-dotenv, SPARQLWrapper; dev: pytest, ruff
-- [ ] `median/config.py` (settings, model IDs, weights, price table)
-- [ ] `db/schema.sql` + `median/db.py` (`connect()` loads sqlite-vec; `init_db()`)
-- [ ] `median/llm.py` with usage logging and the `DAILY_USD_LIMIT` guard
-- [ ] Test fixtures: tiny catalog of ~20 works with vibe cards and fake vectors
-- [ ] Streamlit skeleton: Home + sidebar persona picker + empty pages
+- [x] `median/config.py` (settings, model IDs, weights, price table)
+- [x] `db/schema.sql` + `median/db.py` (`connect()` loads sqlite-vec; `init_db()`)
+- [x] `median/llm.py` with usage logging and the `DAILY_USD_LIMIT` guard
+- [x] Test fixtures: tiny catalog of ~20 works with vibe cards and fake vectors
+- [x] Streamlit skeleton: Home + sidebar persona picker + empty pages
 - [ ] Every teammate runs `uv sync` and `streamlit run` successfully
 
 ## M1 — Sample catalog (can start alongside the M0 UI work)
