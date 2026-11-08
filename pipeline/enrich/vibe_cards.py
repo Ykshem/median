@@ -13,11 +13,13 @@ CLI (all steps are idempotent; responses are cached and finished cards are skipp
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import math
 import re
 import sqlite3
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -26,9 +28,10 @@ import anthropic
 from pydantic import ValidationError
 
 from median import llm
-from median.config import AGENT_MODEL, PROMPTS_DIR, REVIEW_PATH, VIBE_PROMPT_VERSION
+from median.config import AGENT_MODEL, REVIEW_PATH, VIBE_PROMPT_VERSION
 from median.db import init_db
 from median.models import VibeCard, Work
+from pipeline.enrich.prompting import fill, load_prompt
 from pipeline.sample_seed import SampleEntry, load_sample
 from pipeline.sources import normalize_title
 from pipeline.sources import openlibrary as openlibrary_source
@@ -50,8 +53,6 @@ MEDIUM_WORDS = re.compile(
     r"prose|runtime)\b",
     re.IGNORECASE,
 )
-PLACEHOLDER = re.compile(r"\{(\w+)\}")
-DATA_TAG = re.compile(r"</?\s*work_data\s*>", re.IGNORECASE)
 MIN_TITLE_LEAK_CHARS = 10  # shorter titles ("Get Out") are ordinary phrases: warn, don't retry
 
 
@@ -60,12 +61,7 @@ MIN_TITLE_LEAK_CHARS = 10  # shorter titles ("Get Out") are ordinary phrases: wa
 
 def load_template() -> str:
     """Return the vibe-card prompt (median/prompts/vibe_card.md)."""
-    return (PROMPTS_DIR / "vibe_card.md").read_text(encoding="utf-8")
-
-
-def _untrusted(text: str) -> str:
-    """Remove any work_data tags from catalog text so it can't close the data block early."""
-    return DATA_TAG.sub("", text)
+    return load_prompt("vibe_card")
 
 
 def render_prompt(template: str, work: Work) -> str:
@@ -74,14 +70,16 @@ def render_prompt(template: str, work: Work) -> str:
     Single pass (not str.format or repeated replace) means braces or placeholder-looking text inside
     a synopsis are never expanded again. Catalog text is untrusted data (AGENTS.md).
     """
-    values = {
-        "media_type": work.media_type,
-        "title": _untrusted(work.title),
-        "year": str(work.year) if work.year else "unknown",
-        "synopsis": _untrusted(work.synopsis or "unknown"),
-        "subjects": _untrusted(", ".join(work.subjects)) or "unknown",
-    }
-    return PLACEHOLDER.sub(lambda m: values.get(m.group(1), m.group(0)), template)
+    return fill(
+        template,
+        {
+            "media_type": work.media_type,
+            "title": work.title,
+            "year": str(work.year) if work.year else "unknown",
+            "synopsis": work.synopsis or "unknown",
+            "subjects": ", ".join(work.subjects) or "unknown",
+        },
+    )
 
 
 # Parsing and rules -------------------------------------------------------------------------------
@@ -255,11 +253,17 @@ class Estimate:
     ceiling_usd: float  # if every card needed its retry
 
 
-def estimate(prompts: list[str], model: str = AGENT_MODEL) -> Estimate:
-    """Estimate the cost of generating one card per prompt (about 4 characters per token)."""
+def estimate(
+    prompts: list[str],
+    model: str = AGENT_MODEL,
+    *,
+    output_tokens_each: int = EXPECTED_OUTPUT_TOKENS,
+    batch: bool = False,
+) -> Estimate:
+    """Estimate the cost of one reply per prompt (about 4 characters per token)."""
     input_tokens = sum(math.ceil(len(p) / CHARS_PER_TOKEN) for p in prompts)
-    output_tokens = EXPECTED_OUTPUT_TOKENS * len(prompts)
-    usd = llm.cost_usd(model, input_tokens, output_tokens)
+    output_tokens = output_tokens_each * len(prompts)
+    usd = llm.cost_usd(model, input_tokens, output_tokens, batch=batch)
     return Estimate(len(prompts), input_tokens, output_tokens, usd, usd * MAX_CALLS_PER_WORK)
 
 
@@ -272,6 +276,98 @@ def pending_prompts(
         for e in entries
         if load_stored_card(conn, e.work_id) is None
     ]
+
+
+# Batch generation (bulk, half price) -------------------------------------------------------------
+
+
+@dataclass
+class BatchOutcome:
+    stored: int = 0
+    failed: list[tuple[Work, list[str]]] = field(default_factory=list)  # still bad after the retry
+
+
+def _round_tag(round_no: int, chunk: int, ids: list[int]) -> str:
+    digest = hashlib.sha1(",".join(map(str, sorted(ids))).encode()).hexdigest()[:10]
+    return f"{VIBE_PROMPT_VERSION}-r{round_no}-c{chunk}-{digest}"
+
+
+def generate_cards_batch(
+    conn: sqlite3.Connection,
+    works: list[Work],
+    template: str,
+    *,
+    model: str = AGENT_MODEL,
+    poll_seconds: float = llm.BATCH_POLL_SECONDS,
+    sleep: Callable[[float], None] = llm.sleep_for,
+) -> BatchOutcome:
+    """Generate and store cards for works that lack one, using the Batches API.
+
+    Round 1 sends every card; round 2 resends only the invalid ones with the reason appended
+    (a single retry, as for the regular path). Good cards are committed as they are read, and a
+    rerun resumes any batch already submitted. Cards still bad after round 2 are returned, not
+    stored.
+    """
+    pending = [w for w in works if load_stored_card(conn, w.id) is None]
+    outcome = BatchOutcome()
+    feedback: dict[int, str] = {}
+    problems: dict[int, list[str]] = {}
+    for round_no in (1, 2):
+        if not pending:
+            break
+        failed: list[Work] = []
+        for start in range(0, len(pending), llm.MAX_BATCH_REQUESTS):
+            chunk = pending[start : start + llm.MAX_BATCH_REQUESTS]
+            prompts = {w.id: render_prompt(template, w) + feedback.get(w.id, "") for w in chunk}
+            requests = [
+                llm.BatchRequest(
+                    f"w{w.id}",
+                    [{"role": "user", "content": prompts[w.id]}],
+                    max_tokens=MAX_CARD_TOKENS,
+                )
+                for w in chunk
+            ]
+            results = llm.run_batch(
+                conn,
+                purpose=PURPOSE,
+                tag=_round_tag(round_no, start // llm.MAX_BATCH_REQUESTS, [w.id for w in chunk]),
+                model=model,
+                requests=requests,
+                estimated_usd=estimate(list(prompts.values()), model, batch=True).usd,
+                poll_seconds=poll_seconds,
+                sleep=sleep,
+            )
+            by_id = {r.custom_id: r for r in results}
+            for work in chunk:
+                result = by_id.get(f"w{work.id}")
+                if result is None or result.status != "succeeded":
+                    status = result.status if result else "missing"
+                    problems[work.id] = [f"batch request {status}"]
+                    failed.append(work)
+                    continue
+                try:
+                    card = parse_card(result.text or "")
+                except ValueError as exc:
+                    problems[work.id] = [_problem_summary(exc)]
+                    failed.append(work)
+                    continue
+                report = check_rules(card, work)
+                if report.blocking:
+                    problems[work.id] = report.blocking
+                    failed.append(work)
+                    continue
+                store_card(conn, work.id, card, model)
+                outcome.stored += 1
+        for work in failed:
+            feedback[work.id] = (
+                "\n\nYour previous answer was rejected: "
+                + "; ".join(problems[work.id])
+                + ". Return corrected JSON only."
+            )
+        pending = failed
+    outcome.failed = [(w, problems[w.id]) for w in pending]
+    logger.info("vibe cards (batch): %d stored, %d failed", outcome.stored, len(outcome.failed))
+    return outcome
 
 
 # Run ---------------------------------------------------------------------------------------------

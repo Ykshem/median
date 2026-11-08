@@ -32,6 +32,7 @@ EMBED_DIMS = 1536
 
 # Versions: bump to force regeneration / rebuild --------------------------------------------------
 VIBE_PROMPT_VERSION = "v1"
+LINK_PROMPT_VERSION = "v1"
 SCHEMA_VERSION = 2  # v2: works.popularity_raw
 
 # Recommendation scoring (ARCHITECTURE.md section 5) ---------------------------------------------

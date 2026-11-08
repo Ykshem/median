@@ -67,11 +67,8 @@ def load_openlibrary_books(
         if key not in usable:
             report.skipped.append(f"{bare_id(key)}: missing from the dump or no description")
             continue
-        popularity = counts.get(bare_id(key))
-        upsert_work(
-            conn,
-            to_fetched_work(key, usable[key], names, float(popularity) if popularity else None),
-        )
+        popularity = float(counts.get(bare_id(key), 0))  # unshelved books count as 0
+        upsert_work(conn, to_fetched_work(key, usable[key], names, popularity))
         report.loaded += 1
     conn.commit()
     return report

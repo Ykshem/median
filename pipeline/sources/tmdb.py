@@ -66,12 +66,26 @@ def normalize_movie(raw: dict[str, Any]) -> FetchedWork:
     )
 
 
-def get_movie(client: CachedClient, movie_id: int | str) -> FetchedWork:
-    """Fetch details for one movie. Raises SkipWork if it has no overview."""
-    raw = client.get_json(
+def raw_movie(client: CachedClient, movie_id: int | str) -> dict[str, Any]:
+    """Return the raw details payload (cached), including credits and keywords."""
+    return client.get_json(
         f"/3/movie/{movie_id}", {"append_to_response": "keywords,credits,external_ids"}
     )
-    return normalize_movie(raw)
+
+
+def get_movie(client: CachedClient, movie_id: int | str) -> FetchedWork:
+    """Fetch details for one movie. Raises SkipWork if it has no overview."""
+    return normalize_movie(raw_movie(client, movie_id))
+
+
+def crew_names(raw: dict[str, Any], jobs: set[str]) -> list[str]:
+    """Return the names of crew members whose job is in `jobs` (case-insensitive), in order."""
+    wanted = {j.casefold() for j in jobs}
+    seen: dict[str, None] = {}
+    for member in raw.get("credits", {}).get("crew", []):
+        if member.get("job", "").casefold() in wanted and member.get("name"):
+            seen.setdefault(member["name"])
+    return list(seen)
 
 
 def find_movie(client: CachedClient, title: str, year: int) -> FetchedWork:

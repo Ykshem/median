@@ -149,6 +149,23 @@ def count_reading_log(path: Path) -> Counter[str]:
     return Counter({key.decode(): n for key, n in counts.items()})
 
 
+def top_reading_counts(path: Path, cache_file: Path, n: int = 300_000) -> dict[str, int]:
+    """Return the n most-read works as {work key: entries}, cached beside the dump's size.
+
+    Counting the 125 MB reading-log takes about a minute, so the result is kept on disk and reused
+    until the dump file changes size.
+    """
+    size = path.stat().st_size
+    if cache_file.exists():
+        cached = json.loads(cache_file.read_text(encoding="utf-8"))
+        if cached["size"] == size and cached["n"] == n:
+            return {key: count for key, count in cached["top"]}
+    top = count_reading_log(path).most_common(n)
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
+    cache_file.write_text(json.dumps({"size": size, "n": n, "top": top}), encoding="utf-8")
+    return dict(top)
+
+
 def stream_records(path: Path, wanted: set[str]) -> Iterator[tuple[str, dict[str, Any]]]:
     """Yield (key, parsed JSON) for the wanted keys of a works/authors dump, then stop early.
 
@@ -230,8 +247,15 @@ def parse_year(value: Any) -> int | None:
 
 
 def has_description(projected: dict[str, Any] | None, min_chars: int) -> bool:
-    """True when the projected work has a description of at least `min_chars` characters."""
-    return bool(projected) and len(projected["description"]) >= min_chars
+    """True when the projected work has a description of at least `min_chars` characters.
+
+    With `min_chars <= 0` (the full-catalog rule) a description or any subject is enough.
+    """
+    if not projected:
+        return False
+    if min_chars <= 0:
+        return bool(projected["description"] or projected["subjects"])
+    return len(projected["description"]) >= min_chars
 
 
 def to_fetched_work(

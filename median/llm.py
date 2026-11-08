@@ -209,6 +209,11 @@ BATCH_POLL_SECONDS = 30.0
 BATCH_TIMEOUT_SECONDS = 24 * 3600.0  # batches expire after 24 hours
 
 
+def sleep_for(seconds: float) -> None:
+    """Sleep. Looked up at call time (not bound as a default), so tests can patch `time.sleep`."""
+    time.sleep(seconds)
+
+
 @dataclass(frozen=True)
 class BatchRequest:
     """One request in a batch. `custom_id` must match [A-Za-z0-9_-]{1,64}."""
@@ -279,7 +284,7 @@ def wait_for_batch(
     *,
     poll_seconds: float = BATCH_POLL_SECONDS,
     timeout_seconds: float = BATCH_TIMEOUT_SECONDS,
-    sleep: Callable[[float], None] = time.sleep,
+    sleep: Callable[[float], None] = sleep_for,
     clock: Callable[[], float] = time.monotonic,
 ) -> Any:
     """Poll until the batch has ended and return it. Raises TimeoutError if it takes too long."""
@@ -368,7 +373,7 @@ def run_batch(
     requests: list[BatchRequest],
     estimated_usd: float = 0.0,
     poll_seconds: float = BATCH_POLL_SECONDS,
-    sleep: Callable[[float], None] = time.sleep,
+    sleep: Callable[[float], None] = sleep_for,
 ) -> list[BatchResult]:
     """Submit (or resume), wait for, and collect one batch. Returns results in arrival order."""
     batch_id = submit_batch(
