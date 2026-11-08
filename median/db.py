@@ -60,9 +60,19 @@ def init_db(path: str | Path | None = None, *, seed: bool = True) -> sqlite3.Con
     conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
     set_meta(conn, "schema_version", str(SCHEMA_VERSION))
     if seed:
-        conn.executescript(SEED_PERSONAS_PATH.read_text(encoding="utf-8"))
+        apply_seed(conn)
     conn.commit()
     return conn
+
+
+def apply_seed(conn: sqlite3.Connection) -> None:
+    """Insert the demo personas and their pre-rated works (db/seed_personas.sql). Commits.
+
+    Idempotent and safe to repeat. Shelf rows resolve works by external id, so rerun it after the
+    catalog is built to add the ones that weren't there yet; existing rows are never overwritten.
+    """
+    conn.executescript(SEED_PERSONAS_PATH.read_text(encoding="utf-8"))
+    conn.commit()
 
 
 def ensure_db(path: str | Path | None = None) -> Path:

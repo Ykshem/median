@@ -38,6 +38,18 @@ SCHEMA_VERSION = 2  # v2: works.popularity_raw
 # Recommendation scoring (ARCHITECTURE.md section 5) ---------------------------------------------
 SCORE_WEIGHTS = {"link": 0.45, "vibe": 0.35, "taste": 0.15, "popularity": 0.05}
 LINK_STRENGTH = {"adaptation_of": 1.0, "same_franchise": 0.8, "same_creator": 0.5}
+KNN_CANDIDATES = 100  # vibe neighbours considered per query
+MAX_PER_FRANCHISE = 2  # at most this many results from one franchise in a result list
+TASTE_REASON_MIN = 0.35  # taste similarity needed before a result says it fits the persona's taste
+MAX_REASON_THEMES = 3
+
+# Taste vector weights (ARCHITECTURE.md section 5): a weighted mean of the vibe vectors of works the
+# persona has interacted with. A rating r in 1..10 weighs (r - 5.5) / 4.5, i.e. -1..+1.
+TASTE_RATING_MIDPOINT = 5.5
+TASTE_RATING_SPAN = 4.5
+TASTE_FAVORITE_WEIGHT = 1.0
+TASTE_FEEDBACK_WEIGHT = 0.5  # thumbs up / down on a recommendation
+TASTE_MIN_SIGNALS = 3  # the taste vector stays NULL below this
 
 # Prices in USD per million tokens: (input, output). Batch requests cost BATCH_DISCOUNT x.
 # Source: docs/DATA_SOURCES.md (third-party summary dated 2026-10-29). Keep in sync with the

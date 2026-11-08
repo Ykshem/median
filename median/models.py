@@ -78,8 +78,12 @@ class ShelfItem:
 
 @dataclass(frozen=True)
 class Recommendation:
-    """A ranked candidate with machine-made reasons (fleshed out in M2)."""
+    """A ranked candidate. `score` is the weighted sum of the four components, each in 0..1."""
 
     work_id: int
     score: float
-    reasons: list[str] = field(default_factory=list)
+    reasons: list[str] = field(default_factory=list)  # machine-made, shown in the UI and explainer
+    link: float = 0.0  # strength of the strongest verified link to the seed
+    vibe: float = 0.0  # 1 - cosine distance to the seed (or query) vector
+    taste: float = 0.0  # 1 - cosine distance to the persona taste vector (0 without one)
+    popularity: float = 0.0  # percentile within the media type

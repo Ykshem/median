@@ -239,11 +239,12 @@ Changing the template means regenerating every card: bump `VIBE_PROMPT_VERSION` 
 
 ## 5. Overlap and recommendation scoring (`median/recommend.py`)
 
-`overlap(seed_id, target_media, persona_id=None, k=10) -> list[Recommendation]`
+`overlap(conn, seed_id, target_media='any', persona_id=None, k=10) -> list[Recommendation]`
 
 **Candidate generation**
-1. *Link candidates:* all `work_links` rows touching the seed, in both directions (and one hop
-   through a shared franchise).
+1. *Link candidates:* all **verified** `work_links` rows touching the seed, in both directions, plus
+   one hop through a shared franchise (a series neighbour's own links count at the same-franchise
+   strength, 0.8). Unverified candidates from `match` are ignored until `link_check` passes them.
 2. *Vibe candidates:* KNN over `vec_vibes` from the seed's vector, `k=100`, filtered to
    `target_media` when it isn't `any`.
 
@@ -264,8 +265,22 @@ score = 0.45 * link_strength      # adaptation 1.0 · franchise 0.8 · creator 0
 explainer uses: `"Adapted from <title>"`, `"Same series"`, `"Shared themes: grief, found family"`
 (the intersection of the two cards' themes and moods).
 
-`for_persona(persona_id, target_media, mood_query=None, k=10)` is the same scorer, seeded by the
-persona's taste vector, blended with the embedding of `mood_query` if one is given.
+`for_persona(conn, persona_id, target_media='any', mood_vector=None, k=10)` is the same scorer with
+no link term, seeded by the persona's taste vector blended equally with `mood_vector` (an embedding of
+the request; `embed_query` makes one) when given. With neither a taste vector nor a mood it returns
+the most popular unshelved works ("Popular pick"). Reasons use the themes and moods most common among
+the works the persona likes.
+
+Implementation notes:
+- `Recommendation` also carries its four components (`link`, `vibe`, `taste`, `popularity`) so a
+  result can be explained or tuned.
+- Reasons are direction-aware: for a film seed the source book says `Source of <film>`, and for a
+  book seed its film says `Adapted from <book>`. Taste adds `Fits <persona>'s taste` above a
+  similarity of 0.35. Reasons are built only for the final results.
+- Results sort by `(-score, work_id)`, so ties are deterministic.
+- A franchise is a connected group of `same_franchise` links; the cap of 2 applies per group.
+- The persona seed (`db/seed_personas.sql`) resolves works by external id, so it survives rebuilds;
+  the `index` step reapplies it once the catalog exists and recomputes every taste vector.
 
 ### Taste vector (`median/taste.py`)
 

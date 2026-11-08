@@ -7,8 +7,9 @@ import sqlite3
 from bisect import bisect_left
 from datetime import UTC, datetime
 
+from median import taste
 from median.config import SCHEMA_VERSION, VIBE_PROMPT_VERSION
-from median.db import rebuild_fts, set_meta
+from median.db import apply_seed, rebuild_fts, set_meta
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,7 @@ def build_index(conn: sqlite3.Connection) -> dict[str, int]:
     Idempotent. Returns how many works got a popularity value, by media type.
     """
     rebuild_fts(conn)
+    apply_seed(conn)  # persona shelves reference catalog works, which now exist
     ranked: dict[str, int] = {}
     media_types = [r[0] for r in conn.execute("SELECT DISTINCT media_type FROM works")]
     for media in media_types:
@@ -51,7 +53,8 @@ def build_index(conn: sqlite3.Connection) -> dict[str, int]:
     set_meta(conn, "schema_version", str(SCHEMA_VERSION))
     set_meta(conn, "vibe_prompt_version", VIBE_PROMPT_VERSION)
     set_meta(conn, "catalog_built_at", datetime.now(UTC).isoformat(timespec="seconds"))
+    with_taste = taste.recompute_all(conn)
     conn.commit()
     conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-    logger.info("index: popularity set for %s", ranked)
+    logger.info("index: popularity set for %s; %d persona taste vector(s)", ranked, with_taste)
     return ranked
