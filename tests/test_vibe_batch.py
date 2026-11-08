@@ -143,3 +143,14 @@ def test_the_budget_guard_stops_a_batch_before_it_is_submitted(
     with pytest.raises(llm.BudgetExceeded):
         _run(db, _works(db, 2))
     assert fake.created == []
+
+
+def test_card_requests_turn_thinking_off_so_tokens_are_not_eaten_by_it(
+    db: sqlite3.Connection, batch
+) -> None:
+    """Haiku 5.5 thinks by default; those tokens share max_tokens and truncated 44 of 50 cards."""
+    fake = batch(lambda r: _card())
+    _run(db, _works(db, 2))
+    for request in fake.created[0]:
+        assert request["params"]["thinking"] == {"type": "disabled"}
+        assert request["params"]["max_tokens"] >= 1000

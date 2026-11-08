@@ -174,3 +174,20 @@ def test_embed_empty_input_makes_no_calls(
     monkeypatch.setattr(llm, "_openai_client", lambda: fake)
     assert llm.embed(db, [], purpose="embed") == []
     assert fake.calls == []
+
+
+def test_complete_forwards_thinking_and_output_config(
+    db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = FakeAnthropic([anthropic_response()])
+    monkeypatch.setattr(llm, "_anthropic_client", lambda: fake)
+    llm.complete(
+        db,
+        purpose="t",
+        model=config.AGENT_MODEL,
+        messages=[{"role": "user", "content": "x"}],
+        thinking=llm.THINKING_OFF,
+        output_config={"effort": "low"},
+    )
+    assert fake.calls[0]["thinking"] == {"type": "disabled"}
+    assert fake.calls[0]["output_config"] == {"effort": "low"}

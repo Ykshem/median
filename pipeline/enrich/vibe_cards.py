@@ -41,10 +41,10 @@ logger = logging.getLogger(__name__)
 
 PURPOSE = "vibe_card"
 MAX_CALLS_PER_WORK = 2  # the first try plus one retry
-EXPECTED_OUTPUT_TOKENS = 250  # one JSON card; deliberately on the high side
+EXPECTED_OUTPUT_TOKENS = 320  # one JSON card, measured at ~290-320 with thinking off
 CHARS_PER_TOKEN = 4  # rough rule of thumb, good enough for an estimate
 DEFAULT_MAX_USD = 0.25
-MAX_CARD_TOKENS = 600
+MAX_CARD_TOKENS = 1000  # a card is ~320 tokens; the rest is headroom, not spend
 SYNOPSIS_PREVIEW_CHARS = 400
 
 # The words PROMPTS.md forbids, because they describe the medium rather than the story.
@@ -176,6 +176,7 @@ def generate_card(
             model=model,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=MAX_CARD_TOKENS,
+            thinking=llm.THINKING_OFF,
         )
         try:
             card = parse_card(_reply_text(response))
@@ -324,6 +325,7 @@ def generate_cards_batch(
                     f"w{w.id}",
                     [{"role": "user", "content": prompts[w.id]}],
                     max_tokens=MAX_CARD_TOKENS,
+                    thinking=llm.THINKING_OFF,
                 )
                 for w in chunk
             ]

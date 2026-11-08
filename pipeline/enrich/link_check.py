@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 PURPOSE = "link_check"
 KEEP_CONFIDENCE = 0.7
 WRITER_JOBS = {"Writer", "Screenplay", "Novel", "Book", "Author", "Story"}
-MAX_TOKENS = 150
+MAX_TOKENS = 300
 EXPECTED_OUTPUT_TOKENS = 60
 CACHE_PATH = CACHE_DIR / "link_check" / f"{LINK_PROMPT_VERSION}.json"
 
@@ -142,6 +142,7 @@ def check_links(
                 f"l{p.from_work}_{p.to_work}",
                 [{"role": "user", "content": p.prompt}],
                 max_tokens=MAX_TOKENS,
+                thinking=llm.THINKING_OFF,
             )
             for p in todo
         ]

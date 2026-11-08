@@ -282,3 +282,10 @@ def test_a_film_subtitle_still_finds_its_book(world: World) -> None:
     cands = _cands(world)
     assert (1, 2) in cands and (1, 3) not in cands
     assert cands[(1, 2)].confidence == pytest.approx(0.87)
+
+
+def test_link_check_requests_turn_thinking_off(world: World, batch, tmp_path: Path) -> None:
+    _three_links(world)
+    fake = batch(lambda r: _verdict(True, 0.9))
+    _check(world, tmp_path)
+    assert all(r["params"]["thinking"] == {"type": "disabled"} for r in fake.created[0])

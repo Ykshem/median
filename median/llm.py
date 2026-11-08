@@ -49,6 +49,13 @@ _TRANSIENT = (
 )
 
 
+# Claude Haiku 5.5 thinks by default, and thinking tokens count against max_tokens and are billed as
+# output. Extraction-style jobs (vibe cards, link checks) gain nothing from it: measured on real
+# works, 3 of 3 cards were valid at ~300 output tokens with thinking off, but with it on a card
+# used 580-670 tokens and one was cut off. Pass this as `thinking=` for such calls.
+THINKING_OFF: dict[str, str] = {"type": "disabled"}
+
+
 class BudgetExceeded(RuntimeError):
     """Raised instead of making an API call once today's spend is over DAILY_USD_LIMIT."""
 
@@ -149,6 +156,8 @@ def complete(
     max_tokens: int = 1024,
     system: str | None = None,
     tools: list[dict[str, Any]] | None = None,
+    thinking: dict[str, Any] | None = None,
+    output_config: dict[str, Any] | None = None,
 ) -> Any:
     """Call the Anthropic Messages API and return the response (non-streaming).
 
@@ -161,6 +170,10 @@ def complete(
         kwargs["system"] = system
     if tools is not None:
         kwargs["tools"] = tools
+    if thinking is not None:
+        kwargs["thinking"] = thinking
+    if output_config is not None:
+        kwargs["output_config"] = output_config
     client = _anthropic_client()
     for attempt in _retrying():
         with attempt:
@@ -222,6 +235,8 @@ class BatchRequest:
     messages: list[dict[str, Any]]
     max_tokens: int = 1024
     system: str | None = None
+    thinking: dict[str, Any] | None = None
+    output_config: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -271,6 +286,10 @@ def submit_batch(
         }
         if request.system is not None:
             params["system"] = request.system
+        if request.thinking is not None:
+            params["thinking"] = request.thinking
+        if request.output_config is not None:
+            params["output_config"] = request.output_config
         payload.append({"custom_id": request.custom_id, "params": params})
     batch = _anthropic_client().messages.batches.create(requests=payload)
     set_meta(conn, key, batch.id)

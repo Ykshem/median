@@ -286,8 +286,9 @@ def test_a_new_prompt_version_regenerates_cards(
 
 def test_estimate_matches_the_price_table() -> None:
     est = vc.estimate(["x" * 400] * 10)  # 100 tokens each
-    assert (est.calls, est.input_tokens, est.output_tokens) == (10, 1000, 2500)
-    assert est.usd == pytest.approx(llm.cost_usd(config.AGENT_MODEL, 1000, 2500))
+    out = 10 * vc.EXPECTED_OUTPUT_TOKENS
+    assert (est.calls, est.input_tokens, est.output_tokens) == (10, 1000, out)
+    assert est.usd == pytest.approx(llm.cost_usd(config.AGENT_MODEL, 1000, out))
     assert est.ceiling_usd == pytest.approx(est.usd * 2)
 
 
@@ -416,3 +417,10 @@ def test_cli_run_writes_the_review_and_a_rerun_costs_nothing(cli: Path, fake_llm
         assert conn.execute("SELECT COUNT(*) FROM vibe_cards").fetchone()[0] == 2
     finally:
         conn.close()
+
+
+def test_regular_card_calls_also_turn_thinking_off(db: sqlite3.Connection, fake_llm) -> None:
+    fake = fake_llm([reply()])
+    vc.generate_card(db, make_work(), vc.load_template())
+    assert fake.calls[0]["thinking"] == {"type": "disabled"}
+    assert fake.calls[0]["max_tokens"] >= 1000
