@@ -155,3 +155,29 @@ def test_wikidata_replaces_an_unverified_candidate_and_is_idempotent(
         catalog.link_wikidata(db, [(694, "OL1W")], [])
     (row,) = db.execute("SELECT * FROM work_links").fetchall()
     assert (row["source"], row["confidence"], row["verified"]) == ("wikidata", 1.0, 1)
+
+
+def test_a_movie_tmdb_no_longer_has_is_skipped_not_fatal(
+    db: sqlite3.Connection, tmp_path: Path
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/404"):
+            return httpx.Response(404, json={"status_message": "not found"})
+        return httpx.Response(200, json=tmdb_details(1, "One", "2001-01-01"))
+
+    client = tmdb.make_client(
+        transport=httpx.MockTransport(handler), cache_dir=tmp_path / "c", sleep=lambda s: None
+    )
+    with client:
+        report = catalog.load_tmdb_movies(db, client, [404, 1])
+    assert report.loaded == 1 and len(report.skipped) == 1 and "404" in report.skipped[0]
+
+
+def test_other_tmdb_errors_still_fail_loudly(db: sqlite3.Connection, tmp_path: Path) -> None:
+    client = tmdb.make_client(
+        transport=httpx.MockTransport(lambda r: httpx.Response(500)),
+        cache_dir=tmp_path / "c",
+        sleep=lambda s: None,
+    )
+    with client, pytest.raises(httpx.HTTPStatusError):
+        catalog.load_tmdb_movies(db, client, [1])

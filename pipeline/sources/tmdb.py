@@ -10,6 +10,8 @@ import dataclasses
 import logging
 from typing import Any
 
+import httpx
+
 from median.config import get_settings
 from pipeline.sources import FetchedWork, SkipWork, clip_synopsis, normalize_title
 from pipeline.sources.http import CachedClient
@@ -74,8 +76,17 @@ def raw_movie(client: CachedClient, movie_id: int | str) -> dict[str, Any]:
 
 
 def get_movie(client: CachedClient, movie_id: int | str) -> FetchedWork:
-    """Fetch details for one movie. Raises SkipWork if it has no overview."""
-    return normalize_movie(raw_movie(client, movie_id))
+    """Fetch details for one movie. Raises SkipWork if TMDB no longer has it or it has no overview.
+
+    Wikidata's TMDb ids go stale (deleted or merged movies), so a 404 is a skip, not a crash.
+    """
+    try:
+        raw = raw_movie(client, movie_id)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            raise SkipWork(f"TMDB has no movie {movie_id} (HTTP 404)") from exc
+        raise
+    return normalize_movie(raw)
 
 
 def crew_names(raw: dict[str, Any], jobs: set[str]) -> list[str]:

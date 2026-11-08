@@ -22,8 +22,9 @@ from pipeline.sources.tmdb import crew_names, raw_movie
 logger = logging.getLogger(__name__)
 
 NOVEL_JOBS = {"Novel", "Book", "Author"}
-AUTHOR_SCORE = 90  # rapidfuzz token_set_ratio on person names
-TITLE_SCORE = 80  # rapidfuzz WRatio on titles
+AUTHOR_SCORE = 95  # rapidfuzz token_sort_ratio on person names ("Peter Brown" != "Peter C. Brown")
+TITLE_SCORE = 85  # see title_score(); sequels like 'Freed'/'Darker' score ~81
+CONTAINED_TITLE_SCORE = 90  # one title wholly inside the other, e.g. a film's subtitle
 CREDIT_BASE = 0.6
 TITLE_ONLY_CONFIDENCE = 0.4
 
@@ -63,6 +64,20 @@ def _works(conn: sqlite3.Connection, media_type: str, source: str) -> list[_Work
     ]
 
 
+def title_score(film: str, book: str) -> float:
+    """Score how alike two normalised titles are, 0-100.
+
+    Identical is 100; one title appearing whole inside the other ("the hunger games" in "the hunger
+    games mockingjay part 1") is 90; otherwise the plain edit-distance ratio. Unlike WRatio this
+    does not rate unrelated short titles as similar.
+    """
+    if film == book:
+        return 100.0
+    if f" {book} " in f" {film} " or f" {film} " in f" {book} ":
+        return CONTAINED_TITLE_SCORE
+    return float(fuzz.ratio(film, book))
+
+
 def _not_newer(film: _Work, book: _Work) -> bool:
     """A book can only be adapted by a film released in the same year or later (1 year of slack)."""
     return film.year is None or book.year is None or book.year <= film.year + 1
@@ -92,7 +107,7 @@ def find_candidates(conn: sqlite3.Connection, tmdb: CachedClient) -> list[Candid
             matches = process.extract(
                 normalize_title(name),
                 author_names,
-                scorer=fuzz.token_set_ratio,
+                scorer=fuzz.token_sort_ratio,
                 score_cutoff=AUTHOR_SCORE,
                 limit=5,
             )
@@ -101,9 +116,9 @@ def find_candidates(conn: sqlite3.Connection, tmdb: CachedClient) -> list[Candid
                 for book in shelf:
                     if not _not_newer(film, book):
                         continue
-                    title_score = fuzz.WRatio(film.title, book.title)
-                    if title_score >= TITLE_SCORE:
-                        confidence = CREDIT_BASE + 0.3 * title_score / 100
+                    score = title_score(film.title, book.title)
+                    if score >= TITLE_SCORE:
+                        confidence = CREDIT_BASE + 0.3 * score / 100
                     elif len(shelf) == 1:
                         confidence = CREDIT_BASE
                     else:

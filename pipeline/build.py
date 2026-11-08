@@ -21,7 +21,13 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
-from median.config import CACHE_DIR, DUMPS_DIR, GOLD_ADAPTATIONS_PATH, SAMPLE_PLAN_PATH
+from median.config import (
+    CACHE_DIR,
+    DUMPS_DIR,
+    GOLD_ADAPTATIONS_PATH,
+    GOLD_VIBES_PATH,
+    SAMPLE_PLAN_PATH,
+)
 from median.db import init_db
 from pipeline import catalog
 from pipeline.enrich import embed as embed_step
@@ -29,7 +35,7 @@ from pipeline.enrich import index as index_step
 from pipeline.enrich import link_check as link_step
 from pipeline.enrich import match as match_step
 from pipeline.enrich import vibe_cards
-from pipeline.gold import read_gold_adaptations
+from pipeline.gold import read_gold_adaptations, read_gold_vibe_refs
 from pipeline.report import build_report, check_targets, format_report
 from pipeline.sample_plan import SamplePlan, SampleSpec, bare_id, select_sample
 from pipeline.sample_seed import forced_from_entries, load_sample
@@ -78,6 +84,7 @@ class BuildContext:
     cache_dir: Path = CACHE_DIR
     plan_path: Path = SAMPLE_PLAN_PATH
     gold_path: Path = GOLD_ADAPTATIONS_PATH
+    vibes_path: Path = GOLD_VIBES_PATH
     problems: list[str] = field(default_factory=list)
 
 
@@ -139,6 +146,9 @@ def step_select_sample(ctx: BuildContext) -> None:
         movies.append(pair.movie_tmdb_id)
         books.append(pair.book_ol_id)
         pairs.append((pair.movie_tmdb_id, pair.book_ol_id))
+    vibe_movies, vibe_books = read_gold_vibe_refs(ctx.vibes_path)  # the vibe eval needs these too
+    movies += vibe_movies
+    books += vibe_books
     with _wikidata_client() as wikidata_client:
         wikidata_pairs = wikidata.fetch_adaptation_pairs(wikidata_client)
 

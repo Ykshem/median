@@ -246,3 +246,39 @@ def test_nothing_pending_makes_no_batch(world: World, batch, tmp_path: Path) -> 
     report = _check(world, tmp_path)
     assert (report.kept, report.dropped) == (0, 0) and fake.created == []
     assert config.LINK_PROMPT_VERSION == "v1"
+
+
+# tightened matching (found by inspecting real candidates) -----------------------------------------
+
+
+def test_title_score_does_not_rate_unrelated_titles_as_similar() -> None:
+    assert match.title_score("the cat in the hat", "fox in socks") < match.TITLE_SCORE
+    assert match.title_score("the hobbit an unexpected journey", "the lord of the rings") < 80
+    assert match.title_score("fifty shades freed", "fifty shades darker") < match.TITLE_SCORE
+    assert match.title_score("the da vinci code", "the da vinci code") == 100
+    contained = match.title_score("the hunger games mockingjay part 1", "the hunger games")
+    assert contained == match.CONTAINED_TITLE_SCORE
+    assert match.title_score("harry potter", "harry potter and the stone") >= match.TITLE_SCORE
+
+
+def test_a_similar_but_different_author_name_is_not_a_match(world: World) -> None:
+    world.movie(1, 100, "The Wild Robot", 2024, ("Peter Brown", "Novel"))
+    world.book(
+        2, "OL1W", "Make It Stick", None, "Peter C. Brown"
+    )  # a different, non-fiction author
+    assert _cands(world) == {}
+
+
+def test_reordered_and_punctuated_names_still_match(world: World) -> None:
+    world.movie(1, 100, "Heat", 1995, ("Tolkien, J.R.R.", "Novel"))
+    world.book(2, "OL1W", "Anything", 1950, "J.R.R. Tolkien")
+    assert (1, 2) in _cands(world)
+
+
+def test_a_film_subtitle_still_finds_its_book(world: World) -> None:
+    world.movie(1, 100, "The Hunger Games: Mockingjay - Part 1", 2014, ("Suzanne Collins", "Novel"))
+    world.book(2, "OL1W", "The Hunger Games", 2008, "Suzanne Collins")
+    world.book(3, "OL2W", "Gregor the Overlander", 2003, "Suzanne Collins")
+    cands = _cands(world)
+    assert (1, 2) in cands and (1, 3) not in cands
+    assert cands[(1, 2)].confidence == pytest.approx(0.87)

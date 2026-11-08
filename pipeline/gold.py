@@ -323,6 +323,23 @@ def read_gold_adaptations(path: Path = GOLD_ADAPTATIONS_PATH) -> list[GoldPair]:
         return [GoldPair(r["book_ol_id"], int(r["movie_tmdb_id"])) for r in csv.DictReader(f)]
 
 
+def read_gold_vibe_refs(path: Path = GOLD_VIBES_PATH) -> tuple[list[int], list[str]]:
+    """Return (TMDB movie ids, Open Library work ids) used by the vibe pairs, or ([], [])."""
+    movies: list[int] = []
+    books: list[str] = []
+    if not path.exists():
+        return movies, books
+    with path.open(newline="", encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            for ref in (row["seed_ref"], row["target_ref"]):
+                kind, ident = ref.split(":")
+                if kind == "tmdb":
+                    movies.append(int(ident))
+                else:
+                    books.append(ident)
+    return list(dict.fromkeys(movies)), list(dict.fromkeys(books))
+
+
 def write_csv(path: Path, fields: list[str], rows: list[dict[str, object]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as f:

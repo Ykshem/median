@@ -15,10 +15,17 @@ from tests.fixtures.catalog import load_mini_catalog
 
 
 @pytest.fixture(autouse=True)
-def _isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+def _isolated_env(
+    request: pytest.FixtureRequest, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[None]:
     """Point settings at a temp DB and dummy keys. load_dotenv() never overrides set variables,
-    so the real `.env` cannot leak real keys into a test run."""
-    monkeypatch.setenv("MEDIAN_DB_PATH", str(tmp_path / "median.db"))
+    so the real `.env` cannot leak real keys into a test run.
+
+    Tests marked `eval` are the exception for the DB path only: they check the real built
+    catalog (read-only). They still get dummy API keys, so they can never spend money.
+    """
+    if request.node.get_closest_marker("eval") is None:
+        monkeypatch.setenv("MEDIAN_DB_PATH", str(tmp_path / "median.db"))
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
     monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
     monkeypatch.setenv("TMDB_API_READ_TOKEN", "test-tmdb-token")

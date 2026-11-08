@@ -70,7 +70,8 @@ def format_report(report: Report) -> list[str]:
     total_works = sum(report.works.values())
     lines = [
         "== Catalog report ==",
-        "Works: " + ", ".join(f"{n} {kind}s" for kind, n in sorted(report.works.items())),
+        "Works: "
+        + (", ".join(f"{n} {kind}s" for kind, n in sorted(report.works.items())) or "none"),
         f"Vibe cards: {report.cards} / {total_works} "
         f"({report.missing_cards} missing, {report.flagged_cards} break a rule)",
         f"Vectors: {report.vectors}",

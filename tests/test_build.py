@@ -148,6 +148,7 @@ def world(db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         cache_dir=tmp_path / "cache",
         plan_path=tmp_path / "plan.json",
         gold_path=tmp_path / "gold.csv",
+        vibes_path=tmp_path / "vibes.csv",  # absent, so the real vibe file never leaks in
     )
     return ctx, anthropic, openai
 
@@ -291,3 +292,16 @@ def test_main_runs_the_chosen_steps_and_reports_the_exit_code(
     assert seen == ["index", "report"]
     conn = connect()  # main() created the DB at the isolated test path
     conn.close()
+
+
+def test_vibe_gold_works_are_forced_into_the_sample(world) -> None:
+    ctx, _, _ = world
+    ctx.vibes_path.write_text(
+        "seed_ref,target_ref,seed_title,target_title,why,status\n"
+        "tmdb:10,ol:OL12W,a,b,because,proposed\n",
+        encoding="utf-8",
+    )
+    build.run_steps(ctx, ["select_sample"])
+    plan = SamplePlan.load(ctx.plan_path)
+    assert 10 in plan.movies and "OL12W" in plan.books
+    assert len(plan.movies) == 8 and len(plan.books) == 8  # still the requested size

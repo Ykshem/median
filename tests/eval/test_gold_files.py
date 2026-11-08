@@ -155,3 +155,15 @@ def test_write_csv_round_trips(tmp_path: Path) -> None:
     path = tmp_path / "nested" / "x.csv"
     gold.write_csv(path, ["a", "b"], [{"a": "has, comma", "b": 2}])
     assert _rows(path) == [{"a": "has, comma", "b": "2"}]
+
+
+def test_read_gold_vibe_refs_splits_movies_and_books(tmp_path: Path) -> None:
+    path = tmp_path / "v.csv"
+    path.write_text(
+        "seed_ref,target_ref,seed_title,target_title,why,status\n"
+        "tmdb:5,ol:OL1W,a,b,x,proposed\n"
+        "ol:OL2W,tmdb:5,c,a,y,proposed\n",
+        encoding="utf-8",
+    )
+    assert gold.read_gold_vibe_refs(path) == ([5], ["OL1W", "OL2W"])
+    assert gold.read_gold_vibe_refs(tmp_path / "missing.csv") == ([], [])

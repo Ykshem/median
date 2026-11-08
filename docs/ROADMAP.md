@@ -18,17 +18,31 @@ Owner: _TBD_
 
 ## M1 — Sample catalog (can start alongside the M0 UI work)
 Owner: _TBD_
-- [ ] `pipeline/sources/tmdb.py` with response cache
-      (search + details + cache done for the 50-work review set; discover list for ~20k still to do)
-- [ ] `pipeline/sources/openlibrary.py` streaming dump reader
-      (API one-off lookups done for the 50-work review set; the dump reader is still to do)
-- [ ] `pipeline/sources/wikidata.py` adaptation + series query
+
+Status: the code, tests and the non-LLM half of the data build are done. Finishing needs two things
+only people can do: **add Anthropic credits** (the account returned "credit balance is too low") and
+**review the 50 vibe cards as a team**. Then run `uv run python -m pipeline.build --sample` once
+(about $0.20) to finish `link_check`, `vibe_cards`, `embed`, `index` and `report`.
+
+- [x] `pipeline/sources/tmdb.py` with response cache (search, details, discover, year-sliced discover)
+- [x] `pipeline/sources/openlibrary.py` streaming dump reader (`ol_dumps.py`: parallel resumable
+      download, streaming readers, record caches)
+- [x] `pipeline/sources/wikidata.py` adaptation + series query (5,759 film/book pairs)
 - [ ] `pipeline/enrich/vibe_cards.py`: settle the VibeCard template on 50 works and review as a team
-      (generator + review file built: `uv run python -m pipeline.enrich.vibe_cards --run`;
-      open until the cards are generated and the team has reviewed `data/vibe_review.md`)
-- [ ] `pipeline/enrich/embed.py` + `index` step
+      (generator, batch mode and review file are built and tested; **open** until credits are added,
+      `uv run python -m pipeline.enrich.vibe_cards --run` has produced `data/vibe_review.md`, and the
+      team has read it)
+- [ ] `pipeline/enrich/embed.py` + `index` step (built and tested offline; runs in the finishing build)
 - [ ] `pipeline.build --sample` produces a working `data/median.db`
-- [ ] Gold eval files: `tests/eval/gold_adaptations.csv`, `tests/eval/gold_vibes.csv`
+      (done through `match`: 997 movies, 1,000 books, 177 verified adaptation pairs, 62 candidates
+      for `link_check`; remaining: `link_check`, `vibe_cards`, `embed`, `index`, `report`)
+- [ ] Gold eval files: `tests/eval/gold_adaptations.csv` (59 pairs, 38 in Wikidata and 21 not; all
+      present in the sample) is done. `tests/eval/gold_vibes.csv` (32 pairs) is **proposed only**:
+      the team must agree the pairs, then flip `status` to `agreed`.
+- [ ] `pipeline/enrich/match.py` and `link_check.py` (ARCHITECTURE section 7 steps 4-5; added to M1 so
+      M2's adaptation recall target is reachable). `match` has run on the real catalog and recovered
+      18 of the 21 gold pairs Wikidata lacks; `link_check` is built and tested offline and runs in the
+      finishing build.
 
 ## M2 — Overlap engine
 Owner: _TBD_
