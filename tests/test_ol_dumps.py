@@ -219,3 +219,108 @@ def test_download_detects_a_truncated_transfer(tmp_path: Path) -> None:
     with pytest.raises(OSError, match="expected"):
         dumps.download_dump("ratings", dest_dir=tmp_path, http=client)
     assert (tmp_path / "ol_dump_ratings_latest.txt.gz.part").exists()  # kept for resuming
+
+
+# Segmented (parallel) download -----------------------------------------------------------------
+
+
+def _range_server(payload: bytes = PAYLOAD, *, accept_ranges: bool = True, honour: bool = True):
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        headers = {"content-length": str(len(payload))}
+        if accept_ranges:
+            headers["accept-ranges"] = "bytes"
+        if request.method == "HEAD":
+            return httpx.Response(200, headers=headers)
+        spec = request.headers.get("range")
+        if spec:
+            seen.append(spec)
+        if spec and honour:
+            start, _, end = spec.removeprefix("bytes=").partition("-")
+            stop = int(end) + 1 if end else len(payload)
+            return httpx.Response(206, content=payload[int(start) : stop])
+        return httpx.Response(200, content=payload)
+
+    return httpx.Client(transport=httpx.MockTransport(handler)), seen
+
+
+def test_segments_cover_the_file_exactly_once() -> None:
+    for total, count in [(10_240, 4), (10, 3), (7, 10), (1, 1)]:
+        ranges = dumps._segments(total, count)
+        assert ranges[0][0] == 0 and ranges[-1][1] == total - 1
+        assert all(b[0] == a[1] + 1 for a, b in zip(ranges, ranges[1:], strict=False))
+
+
+def test_a_segmented_download_joins_the_pieces_in_order(tmp_path: Path) -> None:
+    client, seen = _range_server()
+    path = dumps.download_dump(
+        "works", dest_dir=tmp_path, http=client, connections=4, segment_threshold=1
+    )
+    assert path.read_bytes() == PAYLOAD
+    assert len(seen) == 4  # one Range request per connection
+    assert not list(tmp_path.glob("*.seg*")) and not list(tmp_path.glob("*.part"))
+    assert json.loads((tmp_path / "MANIFEST.json").read_text(encoding="utf-8"))["works"][
+        "size"
+    ] == len(PAYLOAD)
+
+
+def test_a_segmented_download_resumes_a_partial_segment(tmp_path: Path) -> None:
+    (first_start, first_end), *_ = dumps._segments(len(PAYLOAD), 4)
+    done = 1000
+    (tmp_path / "ol_dump_works_latest.txt.gz.seg0of4").write_bytes(
+        PAYLOAD[first_start : first_start + done]
+    )
+    client, seen = _range_server()
+    path = dumps.download_dump(
+        "works", dest_dir=tmp_path, http=client, connections=4, segment_threshold=1
+    )
+    assert path.read_bytes() == PAYLOAD
+    assert f"bytes={first_start + done}-{first_end}" in seen  # asked only for the missing part
+
+
+def test_segment_files_from_a_different_connection_count_are_discarded(tmp_path: Path) -> None:
+    stale = tmp_path / "ol_dump_works_latest.txt.gz.seg0of8"
+    stale.write_bytes(b"junk")
+    client, _ = _range_server()
+    dumps.download_dump("works", dest_dir=tmp_path, http=client, connections=4, segment_threshold=1)
+    assert not stale.exists()
+
+
+def test_it_falls_back_to_one_connection_when_ranges_are_not_offered(tmp_path: Path) -> None:
+    client, seen = _range_server(accept_ranges=False)
+    path = dumps.download_dump(
+        "works", dest_dir=tmp_path, http=client, connections=4, segment_threshold=1
+    )
+    assert path.read_bytes() == PAYLOAD and seen == []
+
+
+def test_small_files_use_one_connection_even_when_more_are_allowed(tmp_path: Path) -> None:
+    client, seen = _range_server()
+    dumps.download_dump("works", dest_dir=tmp_path, http=client, connections=4)  # default threshold
+    assert seen == []
+
+
+def test_a_server_that_ignores_range_fails_loudly_and_keeps_finished_segments(
+    tmp_path: Path,
+) -> None:
+    client, _ = _range_server(honour=False)
+    with pytest.raises(OSError, match="Range"):
+        dumps.download_dump(
+            "works", dest_dir=tmp_path, http=client, connections=4, segment_threshold=1
+        )
+    assert not (tmp_path / "ol_dump_works_latest.txt.gz").exists()
+
+
+def test_the_segmented_path_checks_disk_for_the_pieces_and_the_joined_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Usage:
+        free = len(PAYLOAD) + (1 << 30)  # room for one copy, not for two
+
+    monkeypatch.setattr(dumps.shutil, "disk_usage", lambda p: Usage)
+    client, _ = _range_server()
+    with pytest.raises(OSError, match="GB"):
+        dumps.download_dump(
+            "works", dest_dir=tmp_path, http=client, connections=4, segment_threshold=1
+        )

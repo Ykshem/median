@@ -15,8 +15,10 @@ import json
 import logging
 import re
 import shutil
+import threading
 from collections import Counter
 from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -34,6 +36,8 @@ DUMP_URL = "https://openlibrary.org/data/ol_dump_{name}_latest.txt.gz"
 CHUNK_BYTES = 1 << 20
 LOG_EVERY_BYTES = 256 << 20
 FREE_SPACE_MARGIN = 1 << 30  # keep 1 GB free beyond the download itself
+DEFAULT_CONNECTIONS = 6  # archive.org serves ~1 MB/s per connection, so use several
+SEGMENT_THRESHOLD_BYTES = 256 << 20  # smaller files are not worth splitting
 YEAR = re.compile(r"\b(1[0-9]{3}|20[0-9]{2})\b")
 
 
@@ -63,13 +67,138 @@ def _write_manifest(dest_dir: Path, name: str, size: int, last_modified: str | N
     path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
 
-def download_dump(
-    name: str, *, dest_dir: Path | None = None, http: httpx.Client | None = None
-) -> Path:
-    """Download one dump, resuming a partial file, and return its path.
+def _check_disk(dest_dir: Path, needed: int, name: str) -> None:
+    free = shutil.disk_usage(dest_dir).free
+    if free < needed + FREE_SPACE_MARGIN:
+        raise OSError(
+            f"Need {needed / 1e9:.1f} GB (+1 GB spare) for {name} but only {free / 1e9:.1f} GB "
+            f"is free in {dest_dir}"
+        )
 
-    Skips the download when a complete file of the right size is already there. Checks free disk
-    space first and verifies the final size. Raises OSError if the disk is too full.
+
+def _download_single(
+    client: httpx.Client, url: str, part: Path, total: int, name: str, dest_dir: Path
+) -> None:
+    """Stream the whole file into `part`, resuming from what is already there."""
+    have = part.stat().st_size if part.exists() else 0
+    if have > total:
+        part.unlink()
+        have = 0
+    _check_disk(dest_dir, total - have, name)
+    headers = {"Range": f"bytes={have}-"} if have else {}
+    with client.stream("GET", url, headers=headers) as response:
+        if response.status_code == 416 and have == total:  # already complete
+            return
+        response.raise_for_status()
+        resumed = response.status_code == 206
+        written = have if resumed else 0  # a server that ignored Range starts over
+        next_log = written + LOG_EVERY_BYTES
+        with part.open("ab" if resumed else "wb") as out:
+            for chunk in response.iter_bytes(CHUNK_BYTES):
+                out.write(chunk)
+                written += len(chunk)
+                if written >= next_log:
+                    logger.info("  %s: %.1f / %.1f GB", name, written / 1e9, total / 1e9)
+                    next_log += LOG_EVERY_BYTES
+
+
+def _segments(total: int, count: int) -> list[tuple[int, int]]:
+    """Split [0, total) into `count` contiguous inclusive (start, end) byte ranges."""
+    size = -(-total // count)
+    return [(i * size, min((i + 1) * size, total) - 1) for i in range(count) if i * size < total]
+
+
+def _download_segment(
+    client: httpx.Client,
+    url: str,
+    path: Path,
+    start: int,
+    end: int,
+    progress: Callable[[int], None],
+) -> None:
+    """Fetch bytes [start, end] into its own file, resuming a partial one."""
+    length = end - start + 1
+    have = path.stat().st_size if path.exists() else 0
+    if have > length:
+        path.unlink()
+        have = 0
+    progress(have)
+    if have == length:
+        return
+    with client.stream("GET", url, headers={"Range": f"bytes={start + have}-{end}"}) as response:
+        if response.status_code != 206:
+            raise OSError(
+                f"The server did not honour a Range request (HTTP {response.status_code})"
+            )
+        with path.open("ab") as out:
+            for chunk in response.iter_bytes(CHUNK_BYTES):
+                out.write(chunk)
+                progress(len(chunk))
+    if path.stat().st_size != length:
+        raise OSError(f"{path.name}: got {path.stat().st_size} bytes, expected {length}")
+
+
+def _download_segmented(
+    client: httpx.Client,
+    url: str,
+    part: Path,
+    total: int,
+    name: str,
+    dest_dir: Path,
+    count: int,
+) -> None:
+    """Download with `count` parallel connections (the host limits each one), then join the pieces.
+
+    Each segment has its own resumable file, so an interrupted run loses at most a few chunks.
+    """
+    ranges = _segments(total, count)
+    base = part.name.removesuffix(".part")
+    for stale in dest_dir.glob(f"{base}.seg*"):
+        if not stale.name.endswith(f"of{len(ranges)}"):
+            stale.unlink()  # left by a run with a different number of connections
+    paths = [dest_dir / f"{base}.seg{i}of{len(ranges)}" for i in range(len(ranges))]
+    done = sum(p.stat().st_size for p in paths if p.exists())
+    _check_disk(dest_dir, 2 * total - done, name)  # the pieces, plus the joined file
+
+    lock = threading.Lock()
+    state = {"bytes": 0, "next_log": LOG_EVERY_BYTES}
+
+    def progress(n: int) -> None:
+        with lock:
+            state["bytes"] += n
+            if state["bytes"] >= state["next_log"]:
+                logger.info("  %s: %.1f / %.1f GB", name, state["bytes"] / 1e9, total / 1e9)
+                state["next_log"] += LOG_EVERY_BYTES
+
+    with ThreadPoolExecutor(max_workers=len(ranges)) as pool:
+        futures = [
+            pool.submit(_download_segment, client, url, path, start, end, progress)
+            for path, (start, end) in zip(paths, ranges, strict=True)
+        ]
+    for future in futures:
+        future.result()  # re-raise the first failure; finished segments are kept for the retry
+    with part.open("wb") as joined:
+        for path in paths:
+            with path.open("rb") as piece:
+                shutil.copyfileobj(piece, joined, CHUNK_BYTES)
+    for path in paths:
+        path.unlink()
+
+
+def download_dump(
+    name: str,
+    *,
+    dest_dir: Path | None = None,
+    http: httpx.Client | None = None,
+    connections: int = DEFAULT_CONNECTIONS,
+    segment_threshold: int = SEGMENT_THRESHOLD_BYTES,
+) -> Path:
+    """Download one dump, resuming partial work, and return its path.
+
+    Files over `segment_threshold` use `connections` parallel Range requests when the server
+    allows it; smaller ones stream on one connection. Skips the download when a complete file of
+    the right size is already there, checks free disk space first and verifies the final size.
+    Raises OSError if the disk is too full or the transfer comes up short (rerun to resume).
     """
     dest_dir = dest_dir or DUMPS_DIR
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -89,35 +218,12 @@ def download_dump(
             logger.info("%s already downloaded (%.2f GB)", final.name, total / 1e9)
             return final
         final.unlink(missing_ok=True)  # a different size means an older monthly dump
-        have = part.stat().st_size if part.exists() else 0
-        if have > total:
-            part.unlink()
-            have = 0
-        needed = total - have
-        free = shutil.disk_usage(dest_dir).free
-        if free < needed + FREE_SPACE_MARGIN:
-            raise OSError(
-                f"Need {needed / 1e9:.1f} GB (+1 GB spare) for {name} but only {free / 1e9:.1f} GB "
-                f"is free in {dest_dir}"
-            )
-        headers = {"Range": f"bytes={have}-"} if have else {}
-        with client.stream("GET", url, headers=headers) as response:
-            if response.status_code == 416 and have == total:  # already complete
-                part.rename(final)
-                return final
-            response.raise_for_status()
-            resumed = response.status_code == 206
-            if have and not resumed:
-                have = 0  # the server ignored Range, so start over
-            written = have
-            next_log = written + LOG_EVERY_BYTES
-            with part.open("ab" if resumed else "wb") as out:
-                for chunk in response.iter_bytes(CHUNK_BYTES):
-                    out.write(chunk)
-                    written += len(chunk)
-                    if written >= next_log:
-                        logger.info("  %s: %.1f / %.1f GB", name, written / 1e9, total / 1e9)
-                        next_log += LOG_EVERY_BYTES
+        ranges_ok = head.headers.get("accept-ranges", "").lower() == "bytes"
+        if connections > 1 and total >= segment_threshold and ranges_ok:
+            part.unlink(missing_ok=True)  # a single-stream leftover can't be reused by segments
+            _download_segmented(client, url, part, total, name, dest_dir, connections)
+        else:
+            _download_single(client, url, part, total, name, dest_dir)
         if part.stat().st_size != total:
             raise OSError(
                 f"{name}: got {part.stat().st_size} bytes, expected {total}. Rerun to resume."

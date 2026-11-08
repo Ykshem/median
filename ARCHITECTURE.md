@@ -66,7 +66,8 @@ CREATE TABLE IF NOT EXISTS works (
   creators    TEXT,            -- JSON array of names (directors/authors)
   synopsis    TEXT,
   subjects    TEXT,            -- JSON array: genres, TMDB keywords, OL subjects
-  popularity  REAL,            -- 0..1 percentile within media_type
+  popularity  REAL,            -- 0..1 percentile within media_type (set by the index step)
+  popularity_raw REAL,         -- TMDB popularity / Open Library reading-log count, pre-percentile
   cover_url   TEXT
 );
 
@@ -333,28 +334,45 @@ and the target's vibe cards, the link facts and the reasons. It returns 2–3 se
 
 ## 7. Offline pipeline (`pipeline/build.py`)
 
-Every step is idempotent and resumable: `--step <name>` runs one step, `--sample` builds a small
-catalog. Raw responses are cached in `data/cache/`.
+Every step is idempotent and resumable. `--sample` builds the dev catalog, `--step <name>` runs one
+step and `--until <name>` runs every step up to and including it. Raw API responses are cached in
+`data/cache/`, finished work is skipped, and a submitted batch is recorded in `meta` so a rerun
+resumes it instead of paying twice. A full build (no `--sample`) needs `--yes`, because it costs
+about $5.
 
 | # | Step | What it does | Notes |
 | --- | --- | --- | --- |
-| 1 | `fetch_tmdb` | Top ~20k movies by popularity; details with `append_to_response=keywords,credits,external_ids` | TMDB caps list pagination; slice discover queries by year range. Cache every response |
-| 2 | `load_openlibrary` | Stream the works, authors and reading-log dumps; keep the top ~20k works by reading-log count that have a description or subjects | Stream with `gzip`, never load whole dumps into memory |
-| 3 | `wikidata_links` | SPARQL: films with a TMDB ID that are "based on" (P144) or in a series (P179) with works that have an Open Library ID | Check property IDs on wikidata.org before relying on them |
-| 4 | `match` | Join on IDs; add candidate adaptations from TMDB credits (crew jobs like "Novel"/"Book") matched to OL title + author with `rapidfuzz` | Candidates start with `verified=0` |
-| 5 | `link_check` | Haiku batch: "Is film X adapted from book Y?" → yes/no + confidence for unverified links | Drop below 0.7 |
-| 6 | `vibe_cards` | Haiku batch: one VibeCard per work; validate with pydantic; retry invalid ones once | ~$4 for 40k works |
-| 7 | `embed` | OpenAI embeddings for `card_text`, 256 inputs per request | ~$0.20 for 40k works |
-| 8 | `index` | Fill `vec_vibes`, rebuild `works_fts`, compute popularity percentiles, write `meta` | |
-| 9 | `report` | Print counts, link coverage, % of works with cards, total spend | |
+| 0 | `select_sample` | Chooses which works to fetch and saves `data/sample_plan.json` | An addition to the original list: the Wikidata pairs decide what to fetch, so the choice comes first. See below |
+| 1 | `fetch_tmdb` | Details for the planned movies (`append_to_response=keywords,credits,external_ids`) | The full build discovers ~20k movies by popularity; TMDB caps list pagination at 10,000, so discover is sliced by release year. Cache every response |
+| 2 | `load_openlibrary` | Reads the works and authors dumps for the planned books | Stream with `gzip`, never load whole dumps; a JSONL record cache means the 4 GB works dump is read once |
+| 3 | `wikidata_links` | SPARQL: films with a TMDB ID (P4947) that are "based on" (P144) or in a series (P179) with works that have an Open Library ID (P648, works only) | Paged with `LIMIT`/`OFFSET`; a link is stored only when both ends are in the catalog; `verified=1` |
+| 4 | `match` | Candidate adaptations from TMDB crew credits ("Novel"/"Book"/"Author") matched to a catalog book by author and title with `rapidfuzz`, or by an identical title | Candidates start with `verified=0`; skips pairs already linked |
+| 5 | `link_check` | Haiku batch: "Is film X adapted from book Y?" → yes/no + confidence for unverified links | Keep `is_adaptation` with confidence ≥ 0.7, drop the rest. Verdicts are cached in `data/cache/link_check/`, so a rejected link proposed again costs nothing |
+| 6 | `vibe_cards` | Haiku batch: one VibeCard per work; validate with pydantic and the PROMPTS.md rules; retry invalid ones once in a second batch | ~$4 for 40k works |
+| 7 | `embed` | OpenAI embeddings for `card_text`, 256 inputs per request, committed per chunk | ~$0.20 for 40k works; a new `VIBE_PROMPT_VERSION` re-embeds everything |
+| 8 | `index` | Rebuild `works_fts`, compute popularity percentiles per media type from `popularity_raw`, write `meta`, checkpoint the WAL | |
+| 9 | `report` | Counts, link coverage, % of works with cards, rule violations, spend by purpose, and whether the sample targets are met | Exit code 1 if a target is missed |
 
 **Review set:** before the full sample, `python -m pipeline.enrich.vibe_cards` builds a 50-work set
 (25 movies + 25 books, 5 adaptation pairs, listed in `pipeline/sample_seed.py`) from TMDB and Open
 Library one-off API lookups, generates cards with the regular API (not batch, since 50 calls is not
-bulk) and writes `data/vibe_review.md` for the team to read before the template is frozen.
+bulk) and writes `data/vibe_review.md` for the team to read before the template is frozen. Those 50
+works are always part of the sample, so their cards are reused.
 
-**`--sample` mode:** 1,000 movies + 1,000 books, including at least 100 known adaptation pairs from
-step 3, so overlap is demo-able in development.
+**`--sample` mode:** about 1,000 movies + 1,000 books, with at least 100 known adaptation pairs, so
+overlap is demo-able in development. `select_sample` builds it from:
+1. the review set and the gold adaptation pairs (`tests/eval/gold_adaptations.csv`), always included;
+2. the Wikidata pairs whose book is most read (reading-log count), at most two films per book so one
+   folk tale cannot flood the set, with a 1.6x buffer because some pairs lose an end;
+3. the most popular TMDB movies (`vote_count ≥ 500`) and the most-read books **that have a description
+   of at least 80 characters** (the full catalog keeps the looser "description or subjects" rule).
+
+The Open Library dumps (~5 GB: works 4.1 GB, authors 0.8 GB, reading-log 0.1 GB) are downloaded
+once into `data/dumps/` with a resumable, size-checked downloader (`python -m pipeline.sources.ol_dumps`)
+that uses several parallel connections for big files, because archive.org serves only ~1 MB/s per connection.
+Their dates are recorded in `data/dumps/MANIFEST.json`; they can be deleted once the extracts in
+`data/cache/openlibrary/` exist. Sample cost: about $0.20 (cards ≈ $0.19 and `link_check` ≈ $0.02 at
+batch prices, embeddings ≈ $0.01).
 
 ---
 

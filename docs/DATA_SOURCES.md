@@ -21,11 +21,16 @@ Terms and limits as checked on 2026-11-08. Recheck the linked pages before relyi
 - **API docs:** https://openlibrary.org/developers/api
 - **Dumps:** https://openlibrary.org/developers/dumps (monthly; works, editions, authors, ratings and
   reading-log files; gzipped TSV with a JSON column). Data is public domain (CC0).
+  Sizes checked 2026-11-08: **works 4.1 GB**, authors 0.8 GB, reading-log 0.13 GB, ratings 9 MB
+  (compressed), so budget about 5 GB of disk. Formats: works/authors are `type, key, revision,
+  last_modified, JSON`, sorted by key (not popularity); reading-log is `work, edition, shelf, date`.
+  Many works have no `description`, only `subjects`.
 - **Rules:** the APIs are **not for bulk download**; use the dumps for the catalog. API limits are
   1 request/s by default, 3 requests/s with a User-Agent that names the app and gives a contact,
   e.g. `Median/0.1 (class project; contact: $CONTACT_EMAIL)`.
 - **Usage in Median:** stream the works, authors and reading-log dumps; keep the top ~20k works by
-  reading-log count that have a description or subjects. Covers come from
+  reading-log count that have a description or subjects (the dev sample requires a description).
+  Download with `python -m pipeline.sources.ol_dumps` (resumable) into `data/dumps/`. Covers come from
   `https://covers.openlibrary.org/b/id/{cover_id}-M.jpg` and are loaded by the browser on display.
   Don't bulk-download covers.
 - **Data quality:** community-edited; expect duplicate works and inconsistent author names.
@@ -36,9 +41,11 @@ Terms and limits as checked on 2026-11-08. Recheck the linked pages before relyi
 - **Endpoint:** https://query.wikidata.org/sparql
 - **Rules:** send a descriptive User-Agent (generic agents get 403/429). Queries time out at 60 s;
   page with `LIMIT`/`OFFSET`, and filter early.
-- **Properties used** (check each on wikidata.org before relying on it): P144 *based on*,
-  P179 *part of the series*, P50 *author*, P57 *director*, plus the external-ID properties
-  for TMDB movie IDs and Open Library IDs.
+- **Properties used** (verified against the live service on 2026-11-08): P31 *instance of* with Q11424
+  *film*, P144 *based on*, P179 *part of the series*, P4947 *TMDb movie ID*, and P648 *Open Library ID*
+  (keep ids ending in `W`, which are works; editions end in `M` and authors in `A`). About 5,400 films
+  link to about 3,600 Open Library works. Queries are paged (5,000 rows) and cached. Series queries
+  return every film x book pair in a franchise, so keep only works that are in the catalog.
 - **Coverage warning:** one study found only about a third of English Wikipedia's "films based on
   novels" had a Wikidata *based on* link
   (https://github.com/tommasobattisti/TheSpaghettiJunction). That's why the pipeline adds TMDB

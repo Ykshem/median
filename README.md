@@ -26,8 +26,11 @@ Get a catalog, using **one** of these:
 # A) Use the team's shared database (recommended): download median.db from the shared drive
 #    into data/median.db
 
-# B) Build a small dev catalog yourself (~2,000 works, a few cents of API calls)
+# B) Build a small dev catalog yourself (~2,000 works, about $0.20 of API calls, a ~5 GB
+#    one-time Open Library download, and an hour or two the first time). Safe to rerun.
 uv run python -m pipeline.build --sample
+#    Everything that needs no LLM, to stop before spending anything:
+#    uv run python -m pipeline.build --sample --until match
 ```
 
 Run the app:
