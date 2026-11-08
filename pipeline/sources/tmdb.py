@@ -60,6 +60,7 @@ def normalize_movie(raw: dict[str, Any]) -> FetchedWork:
         subjects=[g["name"] for g in raw.get("genres", [])]
         + [k["name"] for k in keywords][:MAX_KEYWORDS],
         cover_url=f"{IMAGE_BASE}{poster}" if poster else None,
+        popularity_raw=raw.get("popularity"),
     )
 
 

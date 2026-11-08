@@ -141,17 +141,18 @@ def upsert_work(conn: sqlite3.Connection, work: FetchedWork) -> int:
         work.synopsis,
         json.dumps(work.subjects),
         work.cover_url,
+        work.popularity_raw,
     )
     if row:
         conn.execute(
             "UPDATE works SET media_type = ?, title = ?, year = ?, creators = ?, synopsis = ?, "
-            "subjects = ?, cover_url = ? WHERE id = ?",
+            "subjects = ?, cover_url = ?, popularity_raw = ? WHERE id = ?",
             (*values, row["work_id"]),
         )
         return row["work_id"]
     cur = conn.execute(
-        "INSERT INTO works (media_type, title, year, creators, synopsis, subjects, cover_url) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO works (media_type, title, year, creators, synopsis, subjects, cover_url, "
+        "popularity_raw) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         values,
     )
     conn.execute(

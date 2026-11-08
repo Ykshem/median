@@ -2,13 +2,17 @@
 
 Every API call in the project goes through this module so that `llm_usage` is complete and
 `DAILY_USD_LIMIT` is enforced. Clients are created lazily, so importing never needs API keys.
-Bulk jobs (vibe cards, link checks) will add Message Batches helpers here in M1.
+Bulk jobs (vibe cards, link checks) use the Message Batches API helpers at the bottom (half price).
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
 
@@ -28,6 +32,7 @@ from median.config import (
     PRICES_PER_MTOK,
     get_settings,
 )
+from median.db import get_meta, set_meta
 
 logger = logging.getLogger(__name__)
 
@@ -195,3 +200,184 @@ def embed(conn: sqlite3.Connection, texts: list[str], *, purpose: str) -> list[l
                 raise ValueError(f"Expected {EMBED_DIMS}-dim embeddings, got {len(item.embedding)}")
             vectors.append(list(item.embedding))
     return vectors
+
+
+# Message Batches API (bulk jobs, 50% off) ---------------------------------------------------------
+
+MAX_BATCH_REQUESTS = 10_000  # the API allows 100k; smaller batches finish sooner and fail smaller
+BATCH_POLL_SECONDS = 30.0
+BATCH_TIMEOUT_SECONDS = 24 * 3600.0  # batches expire after 24 hours
+
+
+@dataclass(frozen=True)
+class BatchRequest:
+    """One request in a batch. `custom_id` must match [A-Za-z0-9_-]{1,64}."""
+
+    custom_id: str
+    messages: list[dict[str, Any]]
+    max_tokens: int = 1024
+    system: str | None = None
+
+
+@dataclass(frozen=True)
+class BatchResult:
+    custom_id: str
+    status: str  # succeeded | errored | canceled | expired
+    text: str | None = None  # the reply text, when succeeded
+    input_tokens: int = 0
+    output_tokens: int = 0
+    error: str | None = None
+
+
+def _batch_key(purpose: str, tag: str) -> str:
+    return f"batch:{purpose}:{tag}"
+
+
+def submit_batch(
+    conn: sqlite3.Connection,
+    *,
+    purpose: str,
+    tag: str,
+    model: str,
+    requests: list[BatchRequest],
+    estimated_usd: float = 0.0,
+) -> str:
+    """Submit a batch and return its id, or return the id already recorded for (purpose, tag).
+
+    The id is stored in `meta`, so rerunning a step resumes the same batch instead of paying twice.
+    Not retried on failure: a retry after a lost response could create (and bill) a duplicate.
+    """
+    key = _batch_key(purpose, tag)
+    existing = get_meta(conn, key)
+    if existing:
+        logger.info("Resuming existing batch %s (%s/%s)", existing, purpose, tag)
+        return existing
+    if not requests:
+        raise ValueError("Cannot submit an empty batch")
+    if len(requests) > MAX_BATCH_REQUESTS:
+        raise ValueError(f"Batch has {len(requests)} requests; split it (max {MAX_BATCH_REQUESTS})")
+    check_budget(conn, estimated=estimated_usd)
+    payload = []
+    for request in requests:
+        params: dict[str, Any] = {
+            "model": model,
+            "max_tokens": request.max_tokens,
+            "messages": request.messages,
+        }
+        if request.system is not None:
+            params["system"] = request.system
+        payload.append({"custom_id": request.custom_id, "params": params})
+    batch = _anthropic_client().messages.batches.create(requests=payload)
+    set_meta(conn, key, batch.id)
+    conn.commit()
+    logger.info("Submitted batch %s: %d requests (%s/%s)", batch.id, len(requests), purpose, tag)
+    return batch.id
+
+
+def wait_for_batch(
+    batch_id: str,
+    *,
+    poll_seconds: float = BATCH_POLL_SECONDS,
+    timeout_seconds: float = BATCH_TIMEOUT_SECONDS,
+    sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
+) -> Any:
+    """Poll until the batch has ended and return it. Raises TimeoutError if it takes too long."""
+    client = _anthropic_client()
+    started = clock()
+    while True:
+        for attempt in _retrying():
+            with attempt:
+                batch = client.messages.batches.retrieve(batch_id)
+        if batch.processing_status == "ended":
+            return batch
+        if clock() - started > timeout_seconds:
+            raise TimeoutError(f"Batch {batch_id} still {batch.processing_status} after timeout")
+        counts = batch.request_counts
+        logger.info(
+            "Batch %s %s: %d done, %d processing",
+            batch_id,
+            batch.processing_status,
+            counts.succeeded + counts.errored,
+            counts.processing,
+        )
+        sleep(poll_seconds)
+
+
+def _error_detail(error: Any) -> str | None:
+    """Return a JSON string describing a batch request error (None when there is none)."""
+    if error is None:
+        return None
+    dump = getattr(error, "model_dump", None)
+    return json.dumps(dump() if dump else str(error))
+
+
+def collect_batch(
+    conn: sqlite3.Connection, batch_id: str, *, purpose: str, model: str
+) -> list[BatchResult]:
+    """Return every result of an ended batch, logging its usage once at the batch price.
+
+    The usage is written as one `llm_usage` row per batch, and a `meta` flag stops a rerun from
+    logging it a second time.
+    """
+    client = _anthropic_client()
+    results: list[BatchResult] = []
+    for attempt in _retrying():
+        with attempt:
+            results = []
+            for item in client.messages.batches.results(batch_id):
+                outcome = item.result
+                if outcome.type == "succeeded":
+                    message = outcome.message
+                    text = "".join(
+                        b.text for b in message.content if getattr(b, "type", None) == "text"
+                    )
+                    results.append(
+                        BatchResult(
+                            item.custom_id,
+                            "succeeded",
+                            text,
+                            message.usage.input_tokens,
+                            message.usage.output_tokens,
+                        )
+                    )
+                else:
+                    detail = _error_detail(getattr(outcome, "error", None))
+                    results.append(BatchResult(item.custom_id, outcome.type, error=detail))
+    flag = f"batch_logged:{batch_id}"
+    if get_meta(conn, flag) is None:
+        log_usage(
+            conn,
+            purpose=purpose,
+            model=model,
+            input_tokens=sum(r.input_tokens for r in results),
+            output_tokens=sum(r.output_tokens for r in results),
+            batch=True,
+        )
+        set_meta(conn, flag, "1")
+        conn.commit()
+    return results
+
+
+def run_batch(
+    conn: sqlite3.Connection,
+    *,
+    purpose: str,
+    tag: str,
+    model: str,
+    requests: list[BatchRequest],
+    estimated_usd: float = 0.0,
+    poll_seconds: float = BATCH_POLL_SECONDS,
+    sleep: Callable[[float], None] = time.sleep,
+) -> list[BatchResult]:
+    """Submit (or resume), wait for, and collect one batch. Returns results in arrival order."""
+    batch_id = submit_batch(
+        conn,
+        purpose=purpose,
+        tag=tag,
+        model=model,
+        requests=requests,
+        estimated_usd=estimated_usd,
+    )
+    wait_for_batch(batch_id, poll_seconds=poll_seconds, sleep=sleep)
+    return collect_batch(conn, batch_id, purpose=purpose, model=model)

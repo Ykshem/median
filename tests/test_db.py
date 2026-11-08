@@ -130,3 +130,19 @@ def test_fts_finds_titles_and_creators_after_rebuild(db: sqlite3.Connection) -> 
     by_author = db.execute("SELECT rowid FROM works_fts WHERE works_fts MATCH 'jackson'").fetchall()
     assert [h["rowid"] for h in by_author] == [1]
     assert count_works(db) == 1
+
+
+def test_schema_v2_has_popularity_raw(db: sqlite3.Connection) -> None:
+    columns = {r["name"] for r in db.execute("PRAGMA table_info(works)")}
+    assert {"popularity", "popularity_raw"} <= columns
+    assert config.SCHEMA_VERSION == 2
+
+
+def test_a_v1_database_is_refused_with_a_rebuild_hint(tmp_path: Path) -> None:
+    path = tmp_path / "old.db"
+    conn = init_db(path)
+    set_meta(conn, "schema_version", "1")
+    conn.commit()
+    conn.close()
+    with pytest.raises(SchemaVersionError, match="Rebuild"):
+        init_db(path)

@@ -51,3 +51,53 @@ class FakeOpenAI:
     @property
     def calls(self) -> list[dict[str, Any]]:
         return self._script.calls
+
+
+class FakeBatchClient:
+    """A fake Anthropic client for the Batches API.
+
+    `answer(request)` gets each submitted request dict ({"custom_id", "params"}) and returns the
+    reply text, a `(text, input_tokens, output_tokens)` tuple, or None for an errored request.
+    `statuses` is the sequence of `processing_status` values that retrieve() reports.
+    """
+
+    def __init__(self, answer, statuses=("in_progress", "ended")) -> None:
+        self._answer = answer
+        self._statuses = list(statuses)
+        self.created: list[list[dict[str, Any]]] = []
+        self.retrieves = 0
+        self._results: dict[str, list[Any]] = {}
+        self.messages = SimpleNamespace(
+            batches=SimpleNamespace(
+                create=self._create, retrieve=self._retrieve, results=self._get_results
+            )
+        )
+
+    def _create(self, *, requests: list[dict[str, Any]]) -> Any:
+        batch_id = f"msgbatch_{len(self.created) + 1}"
+        self.created.append(requests)
+        self._results[batch_id] = [self._item(r) for r in requests]
+        return SimpleNamespace(id=batch_id, processing_status="in_progress")
+
+    def _item(self, request: dict[str, Any]) -> Any:
+        reply = self._answer(request)
+        if reply is None:
+            error = SimpleNamespace(model_dump=lambda: {"type": "api_error", "message": "boom"})
+            result = SimpleNamespace(type="errored", error=error)
+        else:
+            text, tokens_in, tokens_out = reply if isinstance(reply, tuple) else (reply, 400, 200)
+            message = SimpleNamespace(
+                content=[SimpleNamespace(type="text", text=text)],
+                usage=SimpleNamespace(input_tokens=tokens_in, output_tokens=tokens_out),
+            )
+            result = SimpleNamespace(type="succeeded", message=message)
+        return SimpleNamespace(custom_id=request["custom_id"], result=result)
+
+    def _retrieve(self, batch_id: str) -> Any:
+        self.retrieves += 1
+        status = self._statuses[min(self.retrieves - 1, len(self._statuses) - 1)]
+        counts = SimpleNamespace(succeeded=0, errored=0, processing=1)
+        return SimpleNamespace(id=batch_id, processing_status=status, request_counts=counts)
+
+    def _get_results(self, batch_id: str) -> list[Any]:
+        return self._results[batch_id]

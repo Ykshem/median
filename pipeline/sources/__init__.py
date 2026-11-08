@@ -25,6 +25,7 @@ class FetchedWork:
     synopsis: str
     subjects: list[str]
     cover_url: str | None = None
+    popularity_raw: float | None = None  # TMDB popularity / OL reading-log count
     match_note: str | None = field(default=None, compare=False)  # set when the match is weak
 
 

@@ -18,6 +18,11 @@ SEED_PERSONAS_PATH = REPO_ROOT / "db" / "seed_personas.sql"
 PROMPTS_DIR = REPO_ROOT / "median" / "prompts"
 CACHE_DIR = REPO_ROOT / "data" / "cache"  # raw API responses, so reruns don't refetch
 REVIEW_PATH = REPO_ROOT / "data" / "vibe_review.md"
+DUMPS_DIR = REPO_ROOT / "data" / "dumps"  # Open Library monthly dumps (~5 GB), git-ignored
+SAMPLE_PLAN_PATH = REPO_ROOT / "data" / "sample_plan.json"
+GOLD_DIR = REPO_ROOT / "tests" / "eval"
+GOLD_ADAPTATIONS_PATH = GOLD_DIR / "gold_adaptations.csv"
+GOLD_VIBES_PATH = GOLD_DIR / "gold_vibes.csv"
 
 # Models ---------------------------------------------------------------------------------------
 AGENT_MODEL = "claude-haiku-5-5"
@@ -27,7 +32,7 @@ EMBED_DIMS = 1536
 
 # Versions: bump to force regeneration / rebuild --------------------------------------------------
 VIBE_PROMPT_VERSION = "v1"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # v2: works.popularity_raw
 
 # Recommendation scoring (ARCHITECTURE.md section 5) ---------------------------------------------
 SCORE_WEIGHTS = {"link": 0.45, "vibe": 0.35, "taste": 0.15, "popularity": 0.05}

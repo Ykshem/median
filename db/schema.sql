@@ -10,7 +10,8 @@ CREATE TABLE IF NOT EXISTS works (
   creators    TEXT,            -- JSON array of names (directors/authors)
   synopsis    TEXT,
   subjects    TEXT,            -- JSON array: genres, TMDB keywords, OL subjects
-  popularity  REAL,            -- 0..1 percentile within media_type
+  popularity  REAL,            -- 0..1 percentile within media_type (set by the index step)
+  popularity_raw REAL,         -- TMDB popularity / Open Library reading-log count, pre-percentile
   cover_url   TEXT
 );
 
