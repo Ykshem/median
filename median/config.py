@@ -15,6 +15,9 @@ from dotenv import load_dotenv
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_PATH = REPO_ROOT / "db" / "schema.sql"
 SEED_PERSONAS_PATH = REPO_ROOT / "db" / "seed_personas.sql"
+PROMPTS_DIR = REPO_ROOT / "median" / "prompts"
+CACHE_DIR = REPO_ROOT / "data" / "cache"  # raw API responses, so reruns don't refetch
+REVIEW_PATH = REPO_ROOT / "data" / "vibe_review.md"
 
 # Models ---------------------------------------------------------------------------------------
 AGENT_MODEL = "claude-haiku-5-5"

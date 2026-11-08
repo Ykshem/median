@@ -19,9 +19,13 @@ Owner: _TBD_
 ## M1 — Sample catalog (can start alongside the M0 UI work)
 Owner: _TBD_
 - [ ] `pipeline/sources/tmdb.py` with response cache
+      (search + details + cache done for the 50-work review set; discover list for ~20k still to do)
 - [ ] `pipeline/sources/openlibrary.py` streaming dump reader
+      (API one-off lookups done for the 50-work review set; the dump reader is still to do)
 - [ ] `pipeline/sources/wikidata.py` adaptation + series query
 - [ ] `pipeline/enrich/vibe_cards.py`: settle the VibeCard template on 50 works and review as a team
+      (generator + review file built: `uv run python -m pipeline.enrich.vibe_cards --run`;
+      open until the cards are generated and the team has reviewed `data/vibe_review.md`)
 - [ ] `pipeline/enrich/embed.py` + `index` step
 - [ ] `pipeline.build --sample` produces a working `data/median.db`
 - [ ] Gold eval files: `tests/eval/gold_adaptations.csv`, `tests/eval/gold_vibes.csv`

@@ -348,6 +348,11 @@ catalog. Raw responses are cached in `data/cache/`.
 | 8 | `index` | Fill `vec_vibes`, rebuild `works_fts`, compute popularity percentiles, write `meta` | |
 | 9 | `report` | Print counts, link coverage, % of works with cards, total spend | |
 
+**Review set:** before the full sample, `python -m pipeline.enrich.vibe_cards` builds a 50-work set
+(25 movies + 25 books, 5 adaptation pairs, listed in `pipeline/sample_seed.py`) from TMDB and Open
+Library one-off API lookups, generates cards with the regular API (not batch, since 50 calls is not
+bulk) and writes `data/vibe_review.md` for the team to read before the template is frozen.
+
 **`--sample` mode:** 1,000 movies + 1,000 books, including at least 100 known adaptation pairs from
 step 3, so overlap is demo-able in development.
 
