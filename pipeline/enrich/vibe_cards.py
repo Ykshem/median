@@ -301,24 +301,30 @@ def generate_cards_batch(
     model: str = AGENT_MODEL,
     poll_seconds: float = llm.BATCH_POLL_SECONDS,
     sleep: Callable[[float], None] = llm.sleep_for,
+    dispatch: Callable[..., list[llm.BatchResult]] = llm.run_batch,
 ) -> BatchOutcome:
-    """Generate and store cards for works that lack one, using the Batches API.
+    """Generate and store cards for works that lack one, in bulk.
 
-    Round 1 sends every card; round 2 resends only the invalid ones with the reason appended
-    (a single retry, as for the regular path). Good cards are committed as they are read, and a
-    rerun resumes any batch already submitted. Cards still bad after round 2 are returned, not
-    stored.
+    `dispatch` decides how the requests run: `llm.run_batch` (the Batches API: half price, but it
+    queues) or `llm.run_parallel` (the regular API, full price, no queue). Round 1 sends every card;
+    round 2 resends only the invalid ones with the reason appended (a single retry, as for the
+    single-call path). Each good card is stored the moment its result arrives, so an interrupted run
+    keeps its work, and a rerun skips stored cards (and resumes any batch already submitted). Cards
+    still bad after round 2 are returned, not stored.
     """
     pending = [w for w in works if load_stored_card(conn, w.id) is None]
     outcome = BatchOutcome()
     feedback: dict[int, str] = {}
     problems: dict[int, list[str]] = {}
+    stored_ids: set[int] = set()
+    is_batch = dispatch is llm.run_batch
     for round_no in (1, 2):
         if not pending:
             break
         failed: list[Work] = []
         for start in range(0, len(pending), llm.MAX_BATCH_REQUESTS):
             chunk = pending[start : start + llm.MAX_BATCH_REQUESTS]
+            by_custom_id = {f"w{w.id}": w for w in chunk}
             prompts = {w.id: render_prompt(template, w) + feedback.get(w.id, "") for w in chunk}
             requests = [
                 llm.BatchRequest(
@@ -329,37 +335,42 @@ def generate_cards_batch(
                 )
                 for w in chunk
             ]
-            results = llm.run_batch(
+
+            def handle(
+                result: llm.BatchResult, by_custom_id: dict[str, Work] = by_custom_id
+            ) -> None:
+                work = by_custom_id[result.custom_id]
+                if result.status != "succeeded":
+                    problems[work.id] = [f"request {result.status}"]
+                    return
+                try:
+                    card = parse_card(result.text or "")
+                except ValueError as exc:
+                    problems[work.id] = [_problem_summary(exc)]
+                    return
+                report = check_rules(card, work)
+                if report.blocking:
+                    problems[work.id] = report.blocking
+                    return
+                store_card(conn, work.id, card, model)
+                stored_ids.add(work.id)
+                outcome.stored += 1
+
+            dispatch(
                 conn,
                 purpose=PURPOSE,
                 tag=_round_tag(round_no, start // llm.MAX_BATCH_REQUESTS, [w.id for w in chunk]),
                 model=model,
                 requests=requests,
-                estimated_usd=estimate(list(prompts.values()), model, batch=True).usd,
+                estimated_usd=estimate(list(prompts.values()), model, batch=is_batch).usd,
                 poll_seconds=poll_seconds,
                 sleep=sleep,
+                on_result=handle,
             )
-            by_id = {r.custom_id: r for r in results}
             for work in chunk:
-                result = by_id.get(f"w{work.id}")
-                if result is None or result.status != "succeeded":
-                    status = result.status if result else "missing"
-                    problems[work.id] = [f"batch request {status}"]
+                if work.id not in stored_ids:
+                    problems.setdefault(work.id, ["no result returned"])
                     failed.append(work)
-                    continue
-                try:
-                    card = parse_card(result.text or "")
-                except ValueError as exc:
-                    problems[work.id] = [_problem_summary(exc)]
-                    failed.append(work)
-                    continue
-                report = check_rules(card, work)
-                if report.blocking:
-                    problems[work.id] = report.blocking
-                    failed.append(work)
-                    continue
-                store_card(conn, work.id, card, model)
-                outcome.stored += 1
         for work in failed:
             feedback[work.id] = (
                 "\n\nYour previous answer was rejected: "
@@ -368,7 +379,7 @@ def generate_cards_batch(
             )
         pending = failed
     outcome.failed = [(w, problems[w.id]) for w in pending]
-    logger.info("vibe cards (batch): %d stored, %d failed", outcome.stored, len(outcome.failed))
+    logger.info("vibe cards (bulk): %d stored, %d failed", outcome.stored, len(outcome.failed))
     return outcome
 
 

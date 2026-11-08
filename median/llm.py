@@ -7,11 +7,13 @@ Bulk jobs (vibe cards, link checks) use the Message Batches API helpers at the b
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import sqlite3
 import time
 from collections.abc import Callable
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
@@ -393,8 +395,12 @@ def run_batch(
     estimated_usd: float = 0.0,
     poll_seconds: float = BATCH_POLL_SECONDS,
     sleep: Callable[[float], None] = sleep_for,
+    on_result: Callable[[BatchResult], None] | None = None,
 ) -> list[BatchResult]:
-    """Submit (or resume), wait for, and collect one batch. Returns results in arrival order."""
+    """Submit (or resume), wait for, and collect one batch. Returns results in arrival order.
+
+    `on_result`, if given, is called for each result once the batch has been collected.
+    """
     batch_id = submit_batch(
         conn,
         purpose=purpose,
@@ -404,4 +410,133 @@ def run_batch(
         estimated_usd=estimated_usd,
     )
     wait_for_batch(batch_id, poll_seconds=poll_seconds, sleep=sleep)
-    return collect_batch(conn, batch_id, purpose=purpose, model=model)
+    results = collect_batch(conn, batch_id, purpose=purpose, model=model)
+    if on_result is not None:
+        for result in results:
+            on_result(result)
+    return results
+
+
+# Regular API, many requests at once (full price, but no queue) ------------------------------------
+
+DEFAULT_WORKERS = 6
+PARALLEL_ATTEMPTS = 8  # more patient than complete(): many requests share one rate limit
+
+
+def _is_fatal(exc: Exception) -> bool:
+    """True for 4xx errors that retrying cannot fix (bad request, no credit, bad key)."""
+    return (
+        isinstance(exc, anthropic.APIStatusError)
+        and 400 <= exc.status_code < 500
+        and exc.status_code not in (408, 409, 429)
+    )
+
+
+def _call_one(client: Any, model: str, request: BatchRequest) -> BatchResult:
+    """Make one Messages call (in a worker thread) and return it as a BatchResult.
+
+    Transient failures are retried with backoff. A request that still fails comes back as an
+    `errored` result so the caller can retry it; a fatal 4xx is raised to stop the whole run.
+    Touches no database: workers only talk to the API.
+    """
+    kwargs: dict[str, Any] = {
+        "model": model,
+        "max_tokens": request.max_tokens,
+        "messages": request.messages,
+    }
+    for name in ("system", "thinking", "output_config"):
+        value = getattr(request, name)
+        if value is not None:
+            kwargs[name] = value
+    try:
+        for attempt in Retrying(
+            retry=retry_if_exception_type(_TRANSIENT),
+            stop=stop_after_attempt(PARALLEL_ATTEMPTS),
+            wait=_WAIT,
+            reraise=True,
+        ):
+            with attempt:
+                response = client.messages.create(**kwargs)
+    except Exception as exc:
+        if _is_fatal(exc):
+            raise
+        return BatchResult(request.custom_id, "errored", error=f"{type(exc).__name__}: {exc}")
+    text = "".join(b.text for b in response.content if getattr(b, "type", None) == "text")
+    return BatchResult(
+        request.custom_id,
+        "succeeded",
+        text,
+        response.usage.input_tokens,
+        response.usage.output_tokens,
+    )
+
+
+def run_parallel(
+    conn: sqlite3.Connection,
+    *,
+    purpose: str,
+    model: str,
+    requests: list[BatchRequest],
+    estimated_usd: float = 0.0,
+    workers: int = DEFAULT_WORKERS,
+    on_result: Callable[[BatchResult], None] | None = None,
+    tag: str | None = None,
+    poll_seconds: float | None = None,
+    sleep: Callable[[float], None] | None = None,
+) -> list[BatchResult]:
+    """Run the requests concurrently on the regular Messages API; return results in arrival order.
+
+    A drop-in for `run_batch` (`tag`, `poll_seconds` and `sleep` are accepted and ignored) that
+    costs twice as much but has no queue. Only this thread touches the database: each result is
+    logged at the regular price and passed to `on_result` as it arrives, so an interrupted run
+    keeps its work and its spend record. The daily budget is checked before every request is sent;
+    when it trips, requests already in flight are collected and logged first, then BudgetExceeded
+    is raised.
+    """
+    if not requests:
+        return []
+    check_budget(conn, estimated_usd)
+    client = _anthropic_client()
+    results: list[BatchResult] = []
+    pending = iter(requests)
+    in_flight: set[Future[BatchResult]] = set()
+
+    def finish(result: BatchResult) -> None:
+        if result.status == "succeeded":
+            log_usage(
+                conn,
+                purpose=purpose,
+                model=model,
+                input_tokens=result.input_tokens,
+                output_tokens=result.output_tokens,
+            )
+        results.append(result)
+        if on_result is not None:
+            on_result(result)
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+
+        def launch() -> bool:
+            request = next(pending, None)
+            if request is None:
+                return False
+            check_budget(conn)
+            in_flight.add(pool.submit(_call_one, client, model, request))
+            return True
+
+        try:
+            for _ in range(workers):
+                if not launch():
+                    break
+            while in_flight:
+                done, _ = wait(in_flight, return_when=FIRST_COMPLETED)
+                for future in done:
+                    in_flight.discard(future)
+                    finish(future.result())
+                    launch()
+        finally:
+            # Whatever stopped us, requests already sent are billed: collect and log them.
+            for future in list(in_flight):
+                with contextlib.suppress(Exception):
+                    finish(future.result())
+    return results

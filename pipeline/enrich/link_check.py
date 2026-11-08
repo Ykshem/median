@@ -109,13 +109,17 @@ def _pending(conn: sqlite3.Connection, tmdb: CachedClient, template: str) -> lis
 
 
 def estimate_link_check(
-    conn: sqlite3.Connection, tmdb: CachedClient, cache_path: Path | None = None
+    conn: sqlite3.Connection,
+    tmdb: CachedClient,
+    cache_path: Path | None = None,
+    *,
+    batch: bool = True,
 ) -> tuple[int, float]:
-    """Return (uncached pairs to check, estimated batch cost in USD)."""
+    """Return (uncached pairs to check, estimated cost in USD at batch or regular prices)."""
     cache = _load_cache(cache_path or CACHE_PATH)
     todo = [p for p in _pending(conn, tmdb, load_prompt("link_check")) if p.key not in cache]
     cost = estimate(
-        [p.prompt for p in todo], output_tokens_each=EXPECTED_OUTPUT_TOKENS, batch=True
+        [p.prompt for p in todo], output_tokens_each=EXPECTED_OUTPUT_TOKENS, batch=batch
     ).usd
     return len(todo), cost
 
@@ -128,8 +132,12 @@ def check_links(
     cache_path: Path | None = None,
     poll_seconds: float = llm.BATCH_POLL_SECONDS,
     sleep: Callable[[float], None] = llm.sleep_for,
+    dispatch: Callable[..., list[llm.BatchResult]] = llm.run_batch,
 ) -> LinkCheckReport:
-    """Verify or drop every unverified adaptation link, calling the batch API only for new pairs."""
+    """Verify or drop every unverified adaptation link, calling the API only for new pairs.
+
+    `dispatch` is `llm.run_batch` (half price, queued) or `llm.run_parallel` (regular API).
+    """
     cache_path = cache_path or CACHE_PATH
     cache = _load_cache(cache_path)
     pending = _pending(conn, tmdb, load_prompt("link_check"))
@@ -148,9 +156,11 @@ def check_links(
         ]
         digest = hashlib.sha1("|".join(sorted(r.custom_id for r in requests)).encode()).hexdigest()
         cost = estimate(
-            [p.prompt for p in todo], output_tokens_each=EXPECTED_OUTPUT_TOKENS, batch=True
+            [p.prompt for p in todo],
+            output_tokens_each=EXPECTED_OUTPUT_TOKENS,
+            batch=dispatch is llm.run_batch,
         ).usd
-        results = llm.run_batch(
+        results = dispatch(
             conn,
             purpose=PURPOSE,
             tag=f"{LINK_PROMPT_VERSION}-{digest[:10]}",

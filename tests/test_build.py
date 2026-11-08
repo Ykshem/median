@@ -305,3 +305,62 @@ def test_vibe_gold_works_are_forced_into_the_sample(world) -> None:
     plan = SamplePlan.load(ctx.plan_path)
     assert 10 in plan.movies and "OL12W" in plan.books
     assert len(plan.movies) == 8 and len(plan.books) == 8  # still the requested size
+
+
+# regular (non-batch) API mode --------------------------------------------------------------------
+
+
+def test_the_api_flag_selects_how_bulk_requests_are_sent(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[tuple[str, object]] = []
+
+    def capture(ctx: build.BuildContext) -> None:
+        seen.append((ctx.api, ctx.dispatch))
+
+    monkeypatch.setitem(build.STEP_FUNCS, "index", capture)
+    assert build.main(["--sample", "--step", "index"]) == 0
+    assert build.main(["--sample", "--step", "index", "--api", "regular"]) == 0
+    assert seen == [("batch", llm.run_batch), ("regular", llm.run_parallel)]
+
+
+def test_the_default_stays_batch_because_it_is_half_price() -> None:
+    assert build.BuildContext(conn=None, sample=True, spec=SPEC).use_batch is True
+
+
+def test_a_full_offline_build_through_the_regular_api_makes_no_batches(
+    world, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.fakes import FakeConcurrentClient
+
+    ctx, batch_client, openai = world
+
+    def answer(kw) -> str:
+        return _card_or_verdict({"params": {"messages": kw["messages"]}})
+
+    concurrent = FakeConcurrentClient(answer)
+    monkeypatch.setattr(llm, "_anthropic_client", lambda: concurrent)
+    ctx.api = "regular"
+    build.run_steps(ctx, list(build.STEPS))
+    assert ctx.problems == []
+    assert batch_client.created == []  # the Batches API was never touched
+    assert len(concurrent.calls) == 16 + 1  # one card per work, and the one link check
+    assert _count(ctx.conn, "SELECT COUNT(*) FROM vibe_cards") == 16
+    assert _count(ctx.conn, "SELECT COUNT(*) FROM work_links WHERE verified = 0") == 0
+    assert _count(ctx.conn, "SELECT COUNT(*) FROM meta WHERE key LIKE 'batch:%'") == 0
+
+
+def test_the_regular_mode_guard_uses_the_full_price(world, monkeypatch: pytest.MonkeyPatch) -> None:
+    ctx, _, _ = world
+    build.run_steps(ctx, build.select_steps(None, "match"))
+    est_batch = vibe_cards_estimate(ctx, batch=True)
+    est_regular = vibe_cards_estimate(ctx, batch=False)
+    assert est_regular == pytest.approx(est_batch * 2)
+
+
+def vibe_cards_estimate(ctx: build.BuildContext, *, batch: bool) -> float:
+    template = build.vibe_cards.load_template()
+    ids = [r["id"] for r in ctx.conn.execute("SELECT id FROM works")]
+    prompts = [
+        build.vibe_cards.render_prompt(template, build.vibe_cards.load_work(ctx.conn, i))
+        for i in ids
+    ]
+    return build.vibe_cards.estimate(prompts, batch=batch).usd

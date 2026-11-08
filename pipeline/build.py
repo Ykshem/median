@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
+from median import llm
 from median.config import (
     CACHE_DIR,
     DUMPS_DIR,
@@ -85,7 +86,17 @@ class BuildContext:
     plan_path: Path = SAMPLE_PLAN_PATH
     gold_path: Path = GOLD_ADAPTATIONS_PATH
     vibes_path: Path = GOLD_VIBES_PATH
+    api: str = "batch"  # 'batch' (half price, queued) or 'regular' (full price, parallel, no queue)
     problems: list[str] = field(default_factory=list)
+
+    @property
+    def use_batch(self) -> bool:
+        return self.api == "batch"
+
+    @property
+    def dispatch(self) -> Callable[..., list[llm.BatchResult]]:
+        """How bulk LLM requests are sent: the Batches API, or many regular calls at once."""
+        return llm.run_batch if self.use_batch else llm.run_parallel
 
 
 # Client factories: module-level so tests can replace them -------------------------------------
@@ -232,11 +243,11 @@ def step_match(ctx: BuildContext) -> None:
 
 def step_link_check(ctx: BuildContext) -> None:
     with _tmdb_client() as client:
-        pairs, usd = link_step.estimate_link_check(ctx.conn, client)
+        pairs, usd = link_step.estimate_link_check(ctx.conn, client, batch=ctx.use_batch)
         logger.info("link_check: %d pair(s) not yet judged", pairs)
         if pairs:
             _guard(ctx, "link_check", usd)
-        link_step.check_links(ctx.conn, client)
+        link_step.check_links(ctx.conn, client, dispatch=ctx.dispatch)
 
 
 def step_vibe_cards(ctx: BuildContext) -> None:
@@ -250,9 +261,11 @@ def step_vibe_cards(ctx: BuildContext) -> None:
     logger.info("vibe_cards: %d work(s) need a card", len(works))
     if not works:
         return
-    est = vibe_cards.estimate([vibe_cards.render_prompt(template, w) for w in works], batch=True)
+    est = vibe_cards.estimate(
+        [vibe_cards.render_prompt(template, w) for w in works], batch=ctx.use_batch
+    )
     _guard(ctx, "vibe_cards (with retries)", est.ceiling_usd)
-    outcome = vibe_cards.generate_cards_batch(ctx.conn, works, template)
+    outcome = vibe_cards.generate_cards_batch(ctx.conn, works, template, dispatch=ctx.dispatch)
     for work, problems in outcome.failed[:20]:
         logger.warning(
             "  no card for %s (%s): %s", work.title, work.media_type, "; ".join(problems)
@@ -318,6 +331,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--until", choices=STEPS, help="run every step up to and including this")
     parser.add_argument("--yes", action="store_true", help="confirm a FULL build (about $5)")
     parser.add_argument(
+        "--api",
+        choices=("batch", "regular"),
+        default="batch",
+        help="batch: half price but queued, for any size (default); regular: full price, no queue",
+    )
+    parser.add_argument(
         "--max-usd",
         type=float,
         default=DEFAULT_MAX_USD,
@@ -339,6 +358,7 @@ def main(argv: list[str] | None = None) -> int:
         sample=args.sample,
         spec=SAMPLE_SPEC if args.sample else FULL_SPEC,
         max_usd=args.max_usd,
+        api=args.api,
     )
     try:
         run_steps(ctx, select_steps(args.step, args.until))

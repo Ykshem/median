@@ -101,3 +101,39 @@ class FakeBatchClient:
 
     def _get_results(self, batch_id: str) -> list[Any]:
         return self._results[batch_id]
+
+
+class FakeConcurrentClient:
+    """A thread-safe fake Anthropic client for regular (non-batch) calls made in parallel.
+
+    `answer(kwargs)` gets the keyword arguments of `messages.create` and returns the reply text, a
+    `(text, input_tokens, output_tokens)` tuple, or an Exception instance to raise.
+    """
+
+    def __init__(self, answer, delay: float = 0.0) -> None:
+        import threading
+
+        self._answer = answer
+        self._delay = delay
+        self._lock = threading.Lock()
+        self.calls: list[dict[str, Any]] = []
+        self.threads: set[int] = set()
+        self._get_ident = threading.get_ident
+        self.messages = SimpleNamespace(create=self._create)
+
+    def _create(self, **kwargs: Any) -> Any:
+        import time
+
+        with self._lock:
+            self.calls.append(kwargs)
+            self.threads.add(self._get_ident())
+        if self._delay:
+            time.sleep(self._delay)
+        reply = self._answer(kwargs)
+        if isinstance(reply, Exception):
+            raise reply
+        text, tokens_in, tokens_out = reply if isinstance(reply, tuple) else (reply, 400, 200)
+        return SimpleNamespace(
+            content=[SimpleNamespace(type="text", text=text)],
+            usage=SimpleNamespace(input_tokens=tokens_in, output_tokens=tokens_out),
+        )
