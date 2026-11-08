@@ -9,6 +9,10 @@ from pipeline.enrich.vibe_cards import check_rules, load_stored_card, load_work
 from pipeline.sample_plan import SampleSpec
 
 COVERAGE_TOLERANCE = 0.95  # a few works lose their synopsis between planning and loading
+CARD_COVERAGE_MIN = (
+    0.99  # a few works can't be described without a forbidden word (a film about books)
+)
+LISTED_MISSING = 10
 
 
 @dataclass(frozen=True)
@@ -17,6 +21,7 @@ class Report:
     cards: int
     missing_cards: int
     flagged_cards: int  # stored cards that break a PROMPTS.md rule
+    missing_titles: list[str]  # works with no card, as 'Title (media)'
     vectors: int
     links: list[tuple[str, str, int, int]]  # (link_type, source, verified, count)
     adaptation_pairs: int  # verified adaptation_of links
@@ -30,12 +35,15 @@ def build_report(conn: sqlite3.Connection) -> Report:
     work_ids = [r[0] for r in conn.execute("SELECT id FROM works ORDER BY id")]
     flagged = 0
     cards = 0
+    missing_titles: list[str] = []
     for work_id in work_ids:
         card = load_stored_card(conn, work_id)
+        work = load_work(conn, work_id)
         if card is None:
+            missing_titles.append(f"{work.title} ({work.media_type})")
             continue
         cards += 1
-        flagged += bool(check_rules(card, load_work(conn, work_id)).blocking)
+        flagged += bool(check_rules(card, work).blocking)
     links = [
         (r[0], r[1], r[2], r[3])
         for r in conn.execute(
@@ -48,6 +56,7 @@ def build_report(conn: sqlite3.Connection) -> Report:
         cards=cards,
         missing_cards=len(work_ids) - cards,
         flagged_cards=flagged,
+        missing_titles=missing_titles,
         vectors=conn.execute("SELECT COUNT(*) FROM vec_vibes").fetchone()[0],
         links=links,
         adaptation_pairs=conn.execute(
@@ -80,6 +89,10 @@ def format_report(report: Report) -> list[str]:
         "Links by type / source / verified:",
     ]
     lines += [f"  {t:15} {s:12} verified={v}  {n}" for t, s, v, n in report.links] or ["  (none)"]
+    if report.missing_titles:
+        shown = report.missing_titles[:LISTED_MISSING]
+        more = len(report.missing_titles) - len(shown)
+        lines.append("Without a card: " + "; ".join(shown) + (f" (+{more} more)" if more else ""))
     if report.spend:
         parts = ", ".join(f"{purpose} ${usd:.4f}" for purpose, usd in sorted(report.spend.items()))
         lines.append(f"Spend: ${sum(report.spend.values()):.4f} ({parts})")
@@ -100,9 +113,9 @@ def check_targets(report: Report, spec: SampleSpec, *, require_cards: bool) -> l
             f"only {report.adaptation_pairs} verified adaptation pairs (need {spec.min_pairs})"
         )
     if require_cards:
-        if report.missing_cards:
-            problems.append(f"{report.missing_cards} works have no vibe card")
         total = sum(report.works.values())
-        if report.vectors != total:
-            problems.append(f"{report.vectors} vectors for {total} works")
+        if report.missing_cards > total * (1 - CARD_COVERAGE_MIN):
+            problems.append(f"{report.missing_cards} works have no vibe card")
+        if report.vectors != report.cards:
+            problems.append(f"{report.vectors} vectors for {report.cards} cards")
     return problems

@@ -195,10 +195,37 @@ def test_targets_notice_missing_cards_and_vectors(db: sqlite3.Connection) -> Non
         build_report(db), SampleSpec(movies=1, books=0, min_pairs=0), require_cards=True
     )
     assert "1 works have no vibe card" in problems
-    assert "0 vectors for 1 works" in problems
     assert (
         check_targets(
             build_report(db), SampleSpec(movies=1, books=0, min_pairs=0), require_cards=False
         )
         == []
     )
+
+
+def test_targets_notice_cards_without_vectors(db: sqlite3.Connection) -> None:
+    work_id = upsert_work(db, fetched("Carded"))
+    vc.store_card(db, work_id, VibeCard(**GOOD_CARD), config.AGENT_MODEL)
+    problems = check_targets(
+        build_report(db), SampleSpec(movies=1, books=0, min_pairs=0), require_cards=True
+    )
+    assert problems == ["0 vectors for 1 cards"]
+
+
+def test_a_handful_of_works_without_cards_is_noted_not_failed(db: sqlite3.Connection) -> None:
+    for i in range(200):  # 199 with cards and vectors, 1 without (0.5% missing)
+        work_id = upsert_work(db, fetched(f"Work {i}", ext=str(i)))
+        if i:
+            vc.store_card(db, work_id, VibeCard(**GOOD_CARD), config.AGENT_MODEL)
+            db.execute(
+                "INSERT INTO vec_vibes (work_id, embedding, media_type) VALUES (?, ?, 'movie')",
+                (work_id, vec_to_blob([0.1] * config.EMBED_DIMS)),
+            )
+    db.commit()
+    report = build_report(db)
+    assert report.missing_cards == 1 and report.missing_titles == ["Work 0 (movie)"]
+    assert (
+        check_targets(report, SampleSpec(movies=190, books=0, min_pairs=0), require_cards=True)
+        == []
+    )
+    assert "Without a card: Work 0 (movie)" in "\n".join(format_report(report))

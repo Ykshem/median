@@ -364,3 +364,21 @@ def vibe_cards_estimate(ctx: build.BuildContext, *, batch: bool) -> float:
         for i in ids
     ]
     return build.vibe_cards.estimate(prompts, batch=batch).usd
+
+
+def test_an_out_of_credit_api_error_exits_cleanly_with_code_3(
+    monkeypatch: pytest.MonkeyPatch, caplog
+) -> None:
+    import openai
+
+    def no_credit(ctx: build.BuildContext) -> None:
+        raise openai.RateLimitError(
+            "You have no credits remaining",
+            response=httpx.Response(429, request=httpx.Request("POST", "https://x.invalid")),
+            body=None,
+        )
+
+    monkeypatch.setitem(build.STEP_FUNCS, "embed", no_credit)
+    with caplog.at_level("ERROR"):
+        assert build.main(["--sample", "--step", "embed"]) == 3
+    assert "openai API error 429" in caplog.text

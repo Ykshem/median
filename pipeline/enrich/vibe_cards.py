@@ -85,6 +85,27 @@ def render_prompt(template: str, work: Work) -> str:
 # Parsing and rules -------------------------------------------------------------------------------
 
 
+def retry_feedback(problems: list[str]) -> str:
+    """Return the text added to a prompt when a card is retried: what broke and how to fix it."""
+    advice = []
+    joined = "; ".join(problems)
+    if "medium" in joined:
+        advice.append(
+            "Rephrase without those words (say 'people', 'someone' or 'the audience' instead)."
+        )
+    if "title" in joined or "creator name" in joined:
+        advice.append(
+            "Do not name it: describe the idea generically, e.g. 'an underground brawling society'."
+        )
+    return (
+        "\n\nYour previous answer was rejected: "
+        + joined
+        + ". "
+        + " ".join(advice)
+        + " Return corrected JSON only."
+    ).replace("  ", " ")
+
+
 def parse_card(text: str) -> VibeCard:
     """Parse the model's reply into a VibeCard, tolerating code fences or chatter around the JSON.
 
@@ -187,12 +208,7 @@ def generate_card(
         if not report.blocking:
             return CardResult(card, report, call)
         logger.info("  %s: attempt %d rejected: %s", work.title, call, "; ".join(report.blocking))
-        prompt = (
-            render_prompt(template, work)
-            + "\n\nYour previous answer was rejected: "
-            + "; ".join(report.blocking)
-            + ". Return corrected JSON only."
-        )
+        prompt = render_prompt(template, work) + retry_feedback(report.blocking)
     return CardResult(card, report, MAX_CALLS_PER_WORK)
 
 
@@ -372,11 +388,7 @@ def generate_cards_batch(
                     problems.setdefault(work.id, ["no result returned"])
                     failed.append(work)
         for work in failed:
-            feedback[work.id] = (
-                "\n\nYour previous answer was rejected: "
-                + "; ".join(problems[work.id])
-                + ". Return corrected JSON only."
-            )
+            feedback[work.id] = retry_feedback(problems[work.id])
         pending = failed
     outcome.failed = [(w, problems[w.id]) for w in pending]
     logger.info("vibe cards (bulk): %d stored, %d failed", outcome.stored, len(outcome.failed))

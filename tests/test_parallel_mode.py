@@ -277,3 +277,61 @@ def test_the_regular_estimate_is_double_the_batch_estimate(db, tmp_path: Path) -
     )
     assert regular_cost == pytest.approx(batch_cost * 2)
     world.client.close()
+
+
+# retry hints and billing errors ------------------------------------------------------------------
+
+
+def test_the_retry_message_says_how_to_fix_each_kind_of_rule_break() -> None:
+    medium = vc.retry_feedback(["mentions the medium (reader)"])
+    assert (
+        "reader" in medium
+        and "'people'" in medium
+        and medium.endswith("Return corrected JSON only.")
+    )
+    title = vc.retry_feedback(["contains the title 'Fight Club'"])
+    assert "Do not name it" in title and "generically" in title
+    both = vc.retry_feedback(["mentions the medium (film)", "contains the creator name 'X Y'"])
+    assert "'people'" in both and "Do not name it" in both
+    assert "  " not in medium  # no doubled spaces from empty advice
+    schema = vc.retry_feedback(["invalid card JSON (themes: too long)"])
+    assert "rejected: invalid card JSON" in schema and "Rephrase" not in schema
+
+
+def test_a_no_credits_429_is_not_retried(db, monkeypatch: pytest.MonkeyPatch) -> None:
+    import openai
+
+    from tests.fakes import FakeOpenAI
+
+    quota = openai.RateLimitError(
+        "Error code: 429 - You have no credits remaining. Add credits to continue.",
+        response=httpx.Response(429, request=httpx.Request("POST", "https://x.invalid")),
+        body=None,
+    )
+    fake = FakeOpenAI([quota, quota, quota])
+    monkeypatch.setattr(llm, "_openai_client", lambda: fake)
+    with pytest.raises(openai.RateLimitError, match="no credits"):
+        llm.embed(db, ["x"], purpose="embed")
+    assert len(fake.calls) == 1  # failed fast, instead of three attempts
+
+
+def test_an_ordinary_429_is_still_retried(db, monkeypatch: pytest.MonkeyPatch) -> None:
+    import openai
+
+    from tests.fakes import FakeOpenAI, embedding_response
+
+    busy = openai.RateLimitError(
+        "Rate limit reached for requests",
+        response=httpx.Response(429, request=httpx.Request("POST", "https://x.invalid")),
+        body=None,
+    )
+    fake = FakeOpenAI([busy, embedding_response(1)])
+    monkeypatch.setattr(llm, "_openai_client", lambda: fake)
+    assert len(llm.embed(db, ["x"], purpose="embed")) == 1 and len(fake.calls) == 2
+
+
+def test_the_quota_check_recognises_the_error_code_too() -> None:
+    class E(Exception):
+        code = "insufficient_quota"
+
+    assert llm._is_quota_error(E("anything")) and not llm._is_quota_error(Exception("busy"))

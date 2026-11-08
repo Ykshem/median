@@ -22,7 +22,7 @@ import anthropic
 import openai
 from tenacity import (
     Retrying,
-    retry_if_exception_type,
+    retry_if_exception,
     stop_after_attempt,
     wait_exponential,
 )
@@ -56,6 +56,20 @@ _TRANSIENT = (
 # works, 3 of 3 cards were valid at ~300 output tokens with thinking off, but with it on a card
 # used 580-670 tokens and one was cut off. Pass this as `thinking=` for such calls.
 THINKING_OFF: dict[str, str] = {"type": "disabled"}
+
+
+def _is_quota_error(exc: BaseException) -> bool:
+    """True for a 429 that means 'out of credit', which waiting and retrying cannot fix."""
+    text = str(exc).lower()
+    return (
+        getattr(exc, "code", None) == "insufficient_quota"
+        or "no credits remaining" in text
+        or "exceeded your current quota" in text
+    )
+
+
+def _should_retry(exc: BaseException) -> bool:
+    return isinstance(exc, _TRANSIENT) and not _is_quota_error(exc)
 
 
 class BudgetExceeded(RuntimeError):
@@ -139,7 +153,7 @@ def _openai_client() -> openai.OpenAI:
 
 def _retrying() -> Retrying:
     return Retrying(
-        retry=retry_if_exception_type(_TRANSIENT),
+        retry=retry_if_exception(_should_retry),
         stop=stop_after_attempt(MAX_ATTEMPTS),
         wait=_WAIT,
         reraise=True,
@@ -450,7 +464,7 @@ def _call_one(client: Any, model: str, request: BatchRequest) -> BatchResult:
             kwargs[name] = value
     try:
         for attempt in Retrying(
-            retry=retry_if_exception_type(_TRANSIENT),
+            retry=retry_if_exception(_should_retry),
             stop=stop_after_attempt(PARALLEL_ATTEMPTS),
             wait=_WAIT,
             reraise=True,

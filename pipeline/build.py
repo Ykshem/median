@@ -21,6 +21,9 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
+import anthropic
+import openai
+
 from median import llm
 from median.config import (
     CACHE_DIR,
@@ -365,6 +368,12 @@ def main(argv: list[str] | None = None) -> int:
     except BuildError as exc:
         logger.error("Stopped: %s", exc)
         return 1
+    except (anthropic.APIStatusError, openai.APIStatusError) as exc:
+        # e.g. 401 bad key, or 'no credits'. Finished work is saved; fix the account and rerun.
+        logger.error(
+            "%s API error %s: %s", type(exc).__module__.split(".")[0], exc.status_code, exc.message
+        )
+        return 3
     finally:
         conn.close()
     return 1 if ctx.problems else 0
