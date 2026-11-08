@@ -1,0 +1,60 @@
+book_ol_id,movie_tmdb_id,book_title,book_author,movie_title,movie_year,in_wikidata
+OL81633W,694,The Shining,Stephen King,The Shining,1980,True
+OL16239762W,210577,Gone Girl,Gillian Flynn,Gone Girl,2014,False
+OL27513W,120,The Fellowship of the Ring,J.R.R. Tolkien,The Lord of the Rings: The Fellowship of the Ring,2001,False
+OL66554W,4348,Pride and Prejudice,Jane Austen,Pride & Prejudice,2005,True
+OL17091839W,286217,The Martian,Andy Weir,The Martian,2015,False
+OL3454854W,578,Jaws,Peter Benchley,Jaws,1975,False
+OL1673205W,238,The Godfather,Mario Puzo,The Godfather,1972,False
+OL46881W,329,Jurassic Park,Michael Crichton,Jurassic Park,1993,True
+OL23481W,274,The Silence of the Lambs,Thomas Harris,The Silence of the Lambs,1991,False
+OL18941W,550,Fight Club,Chuck Palahniuk,Fight Club,1999,True
+OL5735363W,70160,The Hunger Games,Suzanne Collins,The Hunger Games,2012,True
+OL82563W,671,Harry Potter and the Philosopher's Stone,J. K. Rowling,Harry Potter and the Philosopher's Stone,2001,True
+OL27482W,49051,The Hobbit,J.R.R. Tolkien,The Hobbit: An Unexpected Journey,2012,True
+OL893414W,438631,Dune,Frank Herbert,Dune,2021,False
+OL468431W,64682,The Great Gatsby,F. Scott Fitzgerald,The Great Gatsby,2013,True
+OL3140822W,595,To Kill a Mockingbird,Harper Lee,To Kill a Mockingbird,1962,False
+OL2944469W,510,One Flew Over the Cuckoo's Nest,Ken Kesey,One Flew Over the Cuckoo's Nest,1975,True
+OL675783W,20815,The Handmaid's Tale,Margaret Atwood,The Handmaid's Tale,1990,True
+OL2827199W,87827,Life of Pi,Yann Martel,Life of Pi,2012,True
+OL29983W,331482,Little Women,Louisa May Alcott,Little Women,2019,True
+OL66513W,556678,Emma,Jane Austen,Emma.,2020,True
+OL1855944W,4347,Atonement,Ian McEwan,Atonement,2007,True
+OL40873W,20766,The Road,Cormac McCarthy,The Road,2009,True
+OL40875W,6977,No Country for Old Men,Cormac McCarthy,No Country for Old Men,2007,True
+OL59038W,42188,Never Let Me Go,Kazuo Ishiguro,Never Let Me Go,2010,True
+OL36633W,223,Rebecca,Daphne du Maurier,Rebecca,1940,True
+OL6395593W,539,Psycho,Robert Bloch,Psycho,1960,False
+OL927199W,9552,The Exorcist,William Peter Blatty,The Exorcist,1973,True
+OL81626W,7340,Carrie,Stephen King,Carrie,1976,True
+OL81634W,1700,Misery,Stephen King,Misery,1990,True
+OL81629W,497,The Green Mile,Stephen King,The Green Mile,1999,True
+OL26860869W,3035,Frankenstein,Mary Shelley,Frankenstein,1931,False
+OL486967W,2493,The Princess Bride,William Goldman,The Princess Bride,1987,True
+OL45790W,118,Charlie and the Chocolate Factory,Roald Dahl,Charlie and the Chocolate Factory,2005,True
+OL45846W,10830,Matilda,Roald Dahl,Matilda,1996,True
+OL679358W,14836,Coraline,Neil Gaiman,Coraline,2009,False
+OL15833328W,2270,Stardust,Neil Gaiman,Stardust,2007,False
+OL2664916W,2501,The Bourne Identity,Robert Ludlum,The Bourne Identity,2002,False
+OL85753W,36557,Casino Royale,Ian Fleming,Casino Royale,2006,True
+OL76837W,591,The Da Vinci Code,Dan Brown,The Da Vinci Code,2006,False
+OL76833W,13448,Angels & Demons,Dan Brown,Angels & Demons,2009,True
+OL547745W,634,Bridget Jones's Diary,Helen Fielding,Bridget Jones's Diary,2001,True
+OL17924837W,455207,Crazy Rich Asians,Kevin Kwan,Crazy Rich Asians,2018,True
+OL18766691W,682507,Where the Crawdads Sing,Delia Owens,Where the Crawdads Sing,2022,True
+OL15212619W,264644,Room,Emma Donoghue,Room,2015,True
+OL267933W,770,Gone With the Wind,Margaret Mitchell,Gone with the Wind,1939,True
+OL54797W,11036,The Notebook,Nicholas Sparks,The Notebook,2004,False
+OL2172356W,78,Do Androids Dream of Electric Sheep?,Philip K. Dick,Blade Runner,1982,False
+OL261794W,185,A Clockwork Orange,Anthony Burgess,A Clockwork Orange,1971,True
+OL627084W,802,Lolita,Vladimir Nabokov,Lolita,1962,True
+OL276798W,10364,Catch-22,Joseph Heller,Catch-22,1970,True
+OL59048W,1245,The Remains of the Day,Kazuo Ishiguro,The Remains of the Day,1993,True
+OL1897461W,39013,Winter's Bone,Daniel Woodrell,Winter's Bone,2010,True
+OL159452W,1669,The Hunt for Red October,Tom Clancy,The Hunt for Red October,1990,False
+OL59434W,1213,The Talented Mr. Ripley,Patricia Highsmith,The Talented Mr. Ripley,1999,False
+OL553787W,2118,L.A. Confidential,James Ellroy,L.A. Confidential,1997,False
+OL816259W,627,Trainspotting,Irvine Welsh,Trainspotting,1996,False
+OL30838W,590,The hours,Michael Cunningham,The Hours,2002,False
+OL66562W,4584,Sense and Sensibility,Jane Austen,Sense and Sensibility,1995,True

@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://api.themoviedb.org"
 IMAGE_BASE = "https://image.tmdb.org/t/p/w342"
 MAX_KEYWORDS = 12
+MAX_DISCOVER_PAGES = 500  # TMDB caps list pagination at 500 pages (10,000 results)
+DISCOVER_MIN_VOTES = 500  # skips obscure titles whose popularity is noise
 
 
 def make_client(**kwargs: Any) -> CachedClient:
@@ -97,3 +99,51 @@ def find_movie(client: CachedClient, title: str, year: int) -> FetchedWork:
     )
     logger.warning(note)
     return dataclasses.replace(work, match_note=note)
+
+
+def discover_ids(
+    client: CachedClient,
+    limit: int,
+    *,
+    min_votes: int = DISCOVER_MIN_VOTES,
+    start_year: int | None = None,
+    end_year: int | None = None,
+) -> list[int]:
+    """Return up to `limit` movie ids, most popular first (optionally within a release-year range).
+
+    TMDB stops list pagination at 10,000 results, so bigger sets need `discover_sliced`.
+    """
+    ids: list[int] = []
+    page = 1
+    while len(ids) < limit and page <= MAX_DISCOVER_PAGES:
+        params: dict[str, Any] = {
+            "sort_by": "popularity.desc",
+            "vote_count.gte": min_votes,
+            "include_adult": "false",
+            "language": "en-US",
+            "page": page,
+        }
+        if start_year:
+            params["primary_release_date.gte"] = f"{start_year}-01-01"
+        if end_year:
+            params["primary_release_date.lte"] = f"{end_year}-12-31"
+        data = client.get_json("/3/discover/movie", params)
+        ids.extend(r["id"] for r in data.get("results", []))
+        if page >= data.get("total_pages", 1):
+            break
+        page += 1
+    return ids[:limit]
+
+
+def discover_sliced(
+    client: CachedClient, limit: int, years: range, *, min_votes: int = DISCOVER_MIN_VOTES
+) -> list[int]:
+    """Return about `limit` popular movie ids, sliced per release year (for the full build)."""
+    per_year = -(-limit // len(years))  # ceiling division
+    seen: dict[int, None] = {}
+    for year in years:
+        for movie_id in discover_ids(
+            client, per_year, min_votes=min_votes, start_year=year, end_year=year
+        ):
+            seen.setdefault(movie_id)
+    return list(seen)[:limit]

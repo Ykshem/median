@@ -34,6 +34,7 @@ class CachedClient:
         *,
         headers: dict[str, str] | None = None,
         min_interval: float = 0.3,
+        timeout: float = 20.0,
         cache_dir: Path | None = None,
         transport: httpx.BaseTransport | None = None,
         sleep: Callable[[float], None] = time.sleep,
@@ -49,7 +50,7 @@ class CachedClient:
         self._http = httpx.Client(
             base_url=base_url,
             headers=headers or {},
-            timeout=20.0,
+            timeout=timeout,
             follow_redirects=True,
             transport=transport,
         )

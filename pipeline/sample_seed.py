@@ -224,3 +224,19 @@ def load_sample(
     rebuild_fts(conn)
     conn.commit()
     return result
+
+
+def forced_from_entries(
+    entries: list[SampleEntry],
+) -> tuple[list[int], list[str], list[tuple[int, str]]]:
+    """Return (tmdb movie ids, OL work ids, adaptation pairs) for the review set's entries."""
+    movies = [int(e.fetched.external_id) for e in entries if e.fetched.media_type == "movie"]
+    books = [e.fetched.external_id for e in entries if e.fetched.media_type == "book"]
+    by_pair: dict[str, dict[str, str]] = {}
+    for entry in entries:
+        if entry.pair:
+            by_pair.setdefault(entry.pair, {})[entry.fetched.media_type] = entry.fetched.external_id
+    pairs = [
+        (int(p["movie"]), p["book"]) for p in by_pair.values() if {"movie", "book"} <= p.keys()
+    ]
+    return movies, books, pairs
