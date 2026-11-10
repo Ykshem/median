@@ -55,13 +55,16 @@ Before you call a task done, run `uv run ruff check .` and `uv run pytest`, and 
 app/                 Streamlit UI only. No SQL, no LLM calls here; call median.* functions.
   Home.py            Landing page + persona picker (sidebar)
   pages/             1_Browse.py, 2_Work.py, 3_Shelves.py, 4_Chat.py, 5_Taste.py, 6_Credits.py
-  components.py      Shared rendering: work card, recommendation card, rating widget
+  components.py      Shared rendering: work card, vibe card, shelf + rating controls
+  static/            Assets (the TMDB logo)
 median/              Core library, imported by app/ and pipeline/
   config.py          Settings from .env, model IDs, paths, constants
   db.py              SQLite connection (loads sqlite-vec), schema migration, query helpers
   models.py          Dataclasses: Work, Link, Persona, ShelfItem, Recommendation
   recommend.py       Overlap scoring: link candidates + vibe candidates -> ranked list
-  taste.py           Persona taste-vector math
+  browse.py          Catalog search/filter and the Work page data (links, similar vibe)
+  shelves.py         Persona shelves and ratings (each write recomputes the taste vector)
+  taste.py           Persona taste-vector math and the taste profile
   llm.py             Anthropic + OpenAI wrappers, usage logging, retries
   agent.py           Chat agent loop and tool definitions
   prompts/           Prompt templates (.md), see docs/PROMPTS.md

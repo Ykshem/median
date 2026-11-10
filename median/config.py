@@ -36,7 +36,11 @@ LINK_PROMPT_VERSION = "v1"
 SCHEMA_VERSION = 2  # v2: works.popularity_raw
 
 # Recommendation scoring (ARCHITECTURE.md section 5) ---------------------------------------------
-SCORE_WEIGHTS = {"link": 0.45, "vibe": 0.35, "taste": 0.15, "popularity": 0.05}
+# Popularity is a tie-breaker, not a signal: it is a 0..1 percentile, while the vibe similarities of
+# good candidates differ by only a few hundredths, so a weight of 0.05 let popularity reorder
+# genuinely closer matches (vibe recall@10 0.41 -> 0.53 on the proposed gold pairs when it was cut
+# to 0.002). It must stay above 0 so the "Popular pick" fallback in for_persona still has an order.
+SCORE_WEIGHTS = {"link": 0.45, "vibe": 0.398, "taste": 0.15, "popularity": 0.002}
 LINK_STRENGTH = {"adaptation_of": 1.0, "same_franchise": 0.8, "same_creator": 0.5}
 KNN_CANDIDATES = 100  # vibe neighbours considered per query
 MAX_PER_FRANCHISE = 2  # at most this many results from one franchise in a result list

@@ -13,9 +13,17 @@ REPO = Path(__file__).resolve().parent.parent
 PAGES = sorted(str(p.relative_to(REPO)) for p in (REPO / "app" / "pages").glob("*.py"))
 
 
-def _run(script: str) -> AppTest:
-    at = AppTest.from_file(str(REPO / script), default_timeout=30)
-    return at.run()
+def _run(script: str, query_params: dict[str, str] | None = None) -> AppTest:
+    """Run a page the way the real app does: from the Home entrypoint, so that `st.page_link`
+    and `st.switch_page` can resolve sibling pages (running a page file directly can't)."""
+    at = AppTest.from_file(str(REPO / "app" / "Home.py"), default_timeout=30)
+    if query_params:
+        at.query_params.update(query_params)
+    at.run()
+    if script != "app/Home.py":
+        at.switch_page(script.replace("\\", "/").removeprefix("app/"))
+        at.run()
+    return at
 
 
 def test_there_are_six_pages() -> None:

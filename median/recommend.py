@@ -1,6 +1,6 @@
 """Overlap scoring: find works in the other medium that a work (or a persona's taste) points to.
 
-    score = 0.45 * link + 0.35 * vibe_similarity + 0.15 * taste_similarity + 0.05 * popularity
+    score = 0.45 * link + 0.398 * vibe_similarity + 0.15 * taste_similarity + 0.002 * popularity
 
 Candidates come from two places (ARCHITECTURE.md section 5):
   links : verified `work_links` touching the seed in either direction, plus one hop through a shared

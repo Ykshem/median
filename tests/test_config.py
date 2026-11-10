@@ -42,3 +42,13 @@ def test_every_priced_model_has_input_and_output_price() -> None:
         assert model in config.PRICES_PER_MTOK
     assert config.EMBED_DIMS == 1536
     assert abs(sum(config.SCORE_WEIGHTS.values()) - 1.0) < 1e-9
+
+
+def test_popularity_is_only_a_tie_breaker() -> None:
+    """At 0.05 popularity reordered close vibe matches and cut vibe recall@10 from 0.53 to 0.41.
+
+    It must stay positive (the 'Popular pick' fallback needs an order) but far below vibe.
+    """
+    weights = config.SCORE_WEIGHTS
+    assert 0 < weights["popularity"] <= 0.005
+    assert weights["popularity"] * 20 < weights["vibe"]

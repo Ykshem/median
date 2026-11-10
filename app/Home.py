@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from app.components import db_conn, page_setup
+from app.components import BROWSE_PAGE, db_conn, page_setup
 from median.db import count_works
 
 page_setup("Median")
@@ -25,3 +25,8 @@ if works == 0:
     )
 else:
     st.caption(f"Catalog: {works:,} works.")
+
+    with st.form("quick_search", border=False):
+        text = st.text_input("Quick search", placeholder="A title or creator, e.g. the shining")
+        if st.form_submit_button("Search") and text.strip():
+            st.switch_page(BROWSE_PAGE, query_params={"q": text.strip()})

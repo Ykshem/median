@@ -248,13 +248,14 @@ Changing the template means regenerating every card: bump `VIBE_PROMPT_VERSION` 
 2. *Vibe candidates:* KNN over `vec_vibes` from the seed's vector, `k=100`, filtered to
    `target_media` when it isn't `any`.
 
-**Score** (weights in `config.py`, tuned with the eval set):
+**Score** (weights in `config.py`, tuned with the eval set; popularity is deliberately tiny, because at
+0.05 it reordered close vibe matches and cut vibe recall@10 from 0.53 to 0.41):
 
 ```
 score = 0.45 * link_strength      # adaptation 1.0 · franchise 0.8 · creator 0.5, × confidence
-      + 0.35 * vibe_similarity    # 1 - cosine distance to the seed
+      + 0.398 * vibe_similarity   # 1 - cosine distance to the seed
       + 0.15 * taste_similarity   # 1 - cosine distance to the persona taste vector (0 if none)
-      + 0.05 * popularity         # percentile within media type
+      + 0.002 * popularity        # percentile within media type; a tie-breaker only
 ```
 
 **Filters and diversity**
@@ -404,8 +405,29 @@ batch prices, embeddings ≈ $0.01).
 | `pages/6_Credits.py` | TMDB attribution + logo, Open Library and Wikidata credits |
 
 The sidebar persona picker appears on every page. Shared rendering lives in `app/components.py`
-(page setup, persona picker, per-rerun `db_conn()`; later the work card, recommendation card and
-rating widget).
+(page setup, persona picker, per-rerun `db_conn()`, work card, vibe-card display, and the shelf and
+rating controls; the recommendation card arrives with the chat page in M4).
+
+**Library behind the pages** (all SQL lives here, not in `app/`):
+- `median/browse.py`: `search_works` / `count_matches` (FTS5 title and creator search, medium, year
+  range, mood, sort, paging), `list_moods`, `year_bounds`, and the Work page data via `work_detail`
+  (`linked_works`, `similar_vibe`, the vibe card). User text reaches FTS5 only through `fts_query`,
+  which quotes every word, so FTS syntax in a search box can't break the query.
+- `median/shelves.py`: `set_shelf`, `set_rating`, `remove`, `list_shelf`, `shelf_counts`. Every
+  write recomputes the persona's taste vector and commits.
+- `median/taste.py`: `profile()` gives the Taste page its top themes and moods (counted over the 30
+  cards nearest the taste vector) plus the works that pull toward and away from it.
+
+**Behaviours worth knowing**
+- A work page is addressed by `?work_id=<id>`. Home's quick search opens Browse with `?q=<text>`.
+- **Linked** shows only *verified* links. **Similar vibe** shows the other medium and leaves out
+  directly linked works (they have their own section) and anything already on the persona's shelves.
+- Rating a work that isn't shelved files it under `finished`; rating never moves an already shelved
+  work, and removing a work from a shelf drops its rating.
+- Without embeddings (`vec_vibes` empty) Similar vibe and the Taste profile show a message telling
+  you to run the `embed` step; browsing, links and shelves still work.
+- The Credits page shows the official TMDB logo (`app/static/tmdb_logo.svg`) with the required
+  disclaimer.
 
 `pyproject.toml` installs `median`, `pipeline` and `app` as an editable package (`uv sync`), so
 pages import with `from app.components import ...` and `from median... import ...`. Streamlit only

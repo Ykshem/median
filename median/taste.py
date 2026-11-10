@@ -11,8 +11,10 @@ that have a vibe vector. Functions here do not commit; the caller owns the trans
 from __future__ import annotations
 
 import array
+import json
 import math
 import sqlite3
+from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -40,6 +42,11 @@ class Signals:
         """Return work ids with a positive net weight, strongest first."""
         positive = [(w, i) for i, w in self.weights.items() if w > 0]
         return [i for _, i in sorted(positive, key=lambda t: (-t[0], t[1]))]
+
+    def disliked(self) -> list[int]:
+        """Return work ids with a negative net weight, most disliked first."""
+        negative = [(w, i) for i, w in self.weights.items() if w < 0]
+        return [i for _, i in sorted(negative, key=lambda t: (t[0], t[1]))]
 
 
 def rating_weight(rating: int) -> float:
@@ -156,3 +163,54 @@ def recompute_all(conn: sqlite3.Connection) -> int:
     """Recompute every persona's taste vector; return how many have one afterwards."""
     ids = [r["id"] for r in conn.execute("SELECT id FROM personas ORDER BY id")]
     return sum(recompute(conn, persona_id) for persona_id in ids)
+
+
+@dataclass(frozen=True)
+class TasteProfile:
+    """What a persona's taste vector looks like in words, for the Taste page."""
+
+    signals: int  # ratings, favorites and thumbs that count (only works with a vibe vector)
+    has_vector: bool
+    themes: list[tuple[str, int]]  # (theme, how many nearby cards share it), most common first
+    moods: list[tuple[str, int]]
+    nearest: list[int]  # work ids of the cards closest to the taste vector, nearest first
+    liked: list[int]
+    disliked: list[int]
+
+
+def profile(
+    conn: sqlite3.Connection, persona_id: int, neighbours: int = 30, top: int = 8
+) -> TasteProfile:
+    """Describe the persona's taste by the themes and moods of the cards nearest its taste vector.
+
+    Without a taste vector (too few signals, or no embeddings yet) the term lists are empty.
+    """
+    signals = collect_signals(conn, persona_id)
+    vector = get_taste_vector(conn, persona_id)
+    themes: Counter[str] = Counter()
+    moods: Counter[str] = Counter()
+    nearest: list[int] = []
+    if vector is not None:
+        rows = conn.execute(
+            "SELECT work_id FROM vec_vibes WHERE embedding MATCH ? AND k = ? ORDER BY distance",
+            (vec_to_blob(vector), neighbours),
+        ).fetchall()
+        nearest = [r["work_id"] for r in rows]
+        for work_id in nearest:
+            card = conn.execute(
+                "SELECT card_json FROM vibe_cards WHERE work_id = ?", (work_id,)
+            ).fetchone()
+            if card is None:
+                continue
+            data = json.loads(card["card_json"])
+            themes.update(t.lower() for t in data.get("themes", []))
+            moods.update(m.lower() for m in data.get("mood", []))
+    return TasteProfile(
+        signals=signals.count,
+        has_vector=vector is not None,
+        themes=themes.most_common(top),
+        moods=moods.most_common(top),
+        nearest=nearest,
+        liked=signals.liked(),
+        disliked=signals.disliked(),
+    )
