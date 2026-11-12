@@ -309,6 +309,16 @@ def test_a_mood_vector_blends_with_the_taste_vector(tastes: sqlite3.Connection) 
     assert "Matches your mood request" in steered[0].reasons
 
 
+def test_a_higher_mood_weight_lets_the_request_win_over_the_taste(
+    tastes: sqlite3.Connection,
+) -> None:
+    equal = recommend.for_persona(tastes, 1, "book", mood_vector=vec(f=1))
+    assert recommend.for_persona(tastes, 1, "book", mood_vector=vec(f=1), mood_weight=1.0) == equal
+    strong = recommend.for_persona(tastes, 1, "book", mood_vector=vec(f=1), mood_weight=20.0)
+    assert titles(equal)[0] == 6  # the blend favours the work near both
+    assert titles(strong)[0] == 5  # the pure mood match, far from the taste, now wins
+
+
 def test_a_mood_vector_alone_works_without_a_taste_vector(db: sqlite3.Connection) -> None:
     add_work(db, 1, vec(a=1), "book")
     add_work(db, 2, vec(b=1), "book")

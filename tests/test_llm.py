@@ -191,3 +191,89 @@ def test_complete_forwards_thinking_and_output_config(
     )
     assert fake.calls[0]["thinking"] == {"type": "disabled"}
     assert fake.calls[0]["output_config"] == {"effort": "low"}
+
+
+# Streaming ---------------------------------------------------------------------------------------
+
+
+def _stream_client(monkeypatch: pytest.MonkeyPatch, *items):
+    from tests.fakes import FakeStreamingAnthropic
+
+    client = FakeStreamingAnthropic(list(items))
+    monkeypatch.setattr(llm, "_anthropic_client", lambda: client)
+    return client
+
+
+def test_complete_stream_delivers_text_returns_the_message_and_logs_usage(
+    db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.fakes import agent_message, text_block
+
+    reply = agent_message(text_block("Hello there"), input_tokens=1000, output_tokens=200)
+    client = _stream_client(monkeypatch, reply)
+    got: list[str] = []
+    result = llm.complete_stream(
+        db,
+        purpose="chat_agent",
+        model=config.AGENT_MODEL,
+        messages=[{"role": "user", "content": "hi"}],
+        system="be nice",
+        on_text=got.append,
+    )
+    assert result is reply and "".join(got) == "Hello there" and len(got) == 2
+    assert client.calls[0]["system"] == "be nice" and "tools" not in client.calls[0]
+    (row,) = _usage_rows(db)
+    assert (row["purpose"], row["input_tokens"], row["output_tokens"]) == ("chat_agent", 1000, 200)
+    assert row["cost_usd"] == pytest.approx(llm.cost_usd(config.AGENT_MODEL, 1000, 200))
+
+
+def test_complete_stream_checks_the_budget_before_calling(
+    db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = _stream_client(monkeypatch)
+    db.execute("INSERT INTO llm_usage (purpose, model, cost_usd) VALUES ('t', 'm', 2.5)")
+    db.commit()
+    with pytest.raises(llm.BudgetExceeded):
+        llm.complete_stream(db, purpose="x", model=config.AGENT_MODEL, messages=[])
+    assert client.calls == []
+
+
+def test_complete_stream_retries_a_failure_that_happens_before_any_text(
+    db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.fakes import agent_message, text_block
+
+    client = _stream_client(monkeypatch, _transient(), agent_message(text_block("ok")))
+    llm.complete_stream(db, purpose="x", model=config.AGENT_MODEL, messages=[])
+    assert len(client.calls) == 2 and len(_usage_rows(db)) == 1
+
+
+def test_complete_stream_does_not_retry_after_text_was_delivered(
+    db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from types import SimpleNamespace
+
+    calls: list[int] = []
+
+    class DropsMidStream:
+        def __enter__(self) -> DropsMidStream:
+            calls.append(1)
+            return self
+
+        def __exit__(self, *exc: object) -> None:
+            return None
+
+        @property
+        def text_stream(self):
+            yield "partial text"
+            raise _transient()
+
+    client = SimpleNamespace(messages=SimpleNamespace(stream=lambda **kw: DropsMidStream()))
+    monkeypatch.setattr(llm, "_anthropic_client", lambda: client)
+    got: list[str] = []
+    with pytest.raises(anthropic.APIConnectionError):
+        llm.complete_stream(
+            db, purpose="x", model=config.AGENT_MODEL, messages=[], on_text=got.append
+        )
+    assert got == ["partial text"] and len(calls) == 1  # a retry would have repeated the text
+    assert _usage_rows(db) == []

@@ -204,6 +204,59 @@ def complete(
     return response
 
 
+def complete_stream(
+    conn: sqlite3.Connection,
+    *,
+    purpose: str,
+    model: str,
+    messages: list[dict[str, Any]],
+    max_tokens: int = 1024,
+    system: str | None = None,
+    tools: list[dict[str, Any]] | None = None,
+    thinking: dict[str, Any] | None = None,
+    on_text: Callable[[str], None] | None = None,
+) -> Any:
+    """Call the Messages API with streaming; pass each text delta to `on_text`, return the message.
+
+    Same budget check and usage logging as `complete()`. A transient failure is retried only while
+    no text has been delivered yet, because a retry after that would repeat shown text.
+    """
+    check_budget(conn)
+    kwargs: dict[str, Any] = {"model": model, "max_tokens": max_tokens, "messages": messages}
+    if system is not None:
+        kwargs["system"] = system
+    if tools is not None:
+        kwargs["tools"] = tools
+    if thinking is not None:
+        kwargs["thinking"] = thinking
+    client = _anthropic_client()
+    delivered = False
+
+    def retryable(exc: BaseException) -> bool:
+        return _should_retry(exc) and not delivered
+
+    for attempt in Retrying(
+        retry=retry_if_exception(retryable),
+        stop=stop_after_attempt(MAX_ATTEMPTS),
+        wait=_WAIT,
+        reraise=True,
+    ):
+        with attempt, client.messages.stream(**kwargs) as stream:
+            for delta in stream.text_stream:
+                delivered = True
+                if on_text is not None:
+                    on_text(delta)
+            response = stream.get_final_message()
+    log_usage(
+        conn,
+        purpose=purpose,
+        model=model,
+        input_tokens=response.usage.input_tokens,
+        output_tokens=response.usage.output_tokens,
+    )
+    return response
+
+
 def embed(conn: sqlite3.Connection, texts: list[str], *, purpose: str) -> list[list[float]]:
     """Return one `EMBED_DIMS`-length vector per input text, in order.
 

@@ -35,10 +35,10 @@ from median.config import (
 from median.db import init_db
 from pipeline import catalog
 from pipeline.enrich import embed as embed_step
+from pipeline.enrich import fiction, vibe_cards
 from pipeline.enrich import index as index_step
 from pipeline.enrich import link_check as link_step
 from pipeline.enrich import match as match_step
-from pipeline.enrich import vibe_cards
 from pipeline.gold import read_gold_adaptations, read_gold_vibe_refs
 from pipeline.report import build_report, check_targets, format_report
 from pipeline.sample_plan import SamplePlan, SampleSpec, bare_id, select_sample
@@ -60,7 +60,7 @@ STEPS = (
     "index",
     "report",
 )
-LLM_STEPS = ("link_check", "vibe_cards", "embed")  # the ones that cost money
+LLM_STEPS = ("select_sample", "link_check", "vibe_cards", "embed")  # the ones that cost money
 SAMPLE_SPEC = SampleSpec()
 FULL_SPEC = SampleSpec(
     movies=20_000,
@@ -175,6 +175,27 @@ def step_select_sample(ctx: BuildContext) -> None:
             for i in ids
         }
 
+    def is_fiction(ids: list[str]) -> dict[str, bool]:
+        """Books are fiction only (ADR 0002): subjects decide most, a Haiku batch the rest."""
+        records = works_cache.get_many([f"/works/{i}" for i in ids], dumps["works"])
+        books = [
+            fiction.BookInfo(
+                i,
+                rec["title"],
+                ol_dumps.parse_year(rec["first_publish_date"]),
+                rec["description"],
+                rec["subjects"],
+            )
+            for i in ids
+            if (rec := records[f"/works/{i}"])
+        ]
+        pending, usd = fiction.estimate_fiction_check(books, batch=ctx.use_batch)
+        logger.info("fiction_check: %d of %d book(s) need the model", pending, len(books))
+        if pending:
+            _guard(ctx, "fiction_check", usd)
+        verdicts, _ = fiction.classify_books(ctx.conn, books, dispatch=ctx.dispatch)
+        return verdicts
+
     with _tmdb_client() as tmdb_client:
 
         def discover(n: int) -> list[int]:
@@ -192,6 +213,7 @@ def step_select_sample(ctx: BuildContext) -> None:
             wikidata_pairs=wikidata_pairs,
             reading_counts=counts,
             has_description=has_description,
+            is_fiction=is_fiction,
             discover_movies=discover,
         )
     plan.save(ctx.plan_path)
@@ -229,6 +251,11 @@ def step_load_openlibrary(ctx: BuildContext) -> None:
     logger.info("Open Library: %d books loaded, %d skipped", report.loaded, len(report.skipped))
     for line in report.skipped[:10]:
         logger.info("  skipped %s", line)
+    removed = catalog.prune_books(ctx.conn, plan.books)  # the catalog's books are the plan's books
+    if removed:
+        logger.info(
+            "Removed %d book(s) outside the plan (not fiction): %s", len(removed), removed[:8]
+        )
 
 
 def step_wikidata_links(ctx: BuildContext) -> None:

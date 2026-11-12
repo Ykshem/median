@@ -367,27 +367,24 @@ def for_persona(
     target_media: str = "any",
     mood_vector: list[float] | None = None,
     k: int = 10,
+    mood_weight: float = 1.0,
 ) -> list[Recommendation]:
     """Return up to k works that fit a persona's taste, optionally steered by a mood vector.
 
-    The query is the persona's taste vector, blended equally with `mood_vector` (an embedding of the
-    user's request; see `embed_query`) when given. With neither, the most popular unshelved works
-    are returned. Works already on the persona's shelves are left out.
+    The query is the persona's taste vector blended with `mood_vector` (an embedding of the user's
+    request; see `embed_query`) when given: `mood_weight` 1.0 weighs them equally, and higher values
+    let the request win over the taste. With neither, the most popular unshelved works are
+    returned. Works already on the persona's shelves are left out.
     """
     _check_target(target_media, k)
     persona = _persona(conn, persona_id)
     media = None if target_media == "any" else target_media
     taste_vec = taste.get_taste_vector(conn, persona_id)
     taste_blob = persona["taste_vector"] if taste_vec else None
-    parts = [
-        v
-        for v in (
-            taste.normalize(taste_vec) if taste_vec else None,
-            taste.normalize(mood_vector) if mood_vector else None,
-        )
-        if v
-    ]
-    query = taste.weighted_direction((v, 1.0) for v in parts) if parts else None
+    taste_dir = taste.normalize(taste_vec) if taste_vec else None
+    mood_dir = taste.normalize(mood_vector) if mood_vector else None
+    parts = [(v, w) for v, w in ((taste_dir, 1.0), (mood_dir, mood_weight)) if v]
+    query = taste.weighted_direction(parts) if parts else None
     shelved = _shelved(conn, persona_id)
 
     candidates: dict[int, _Candidate] = {}

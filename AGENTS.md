@@ -65,8 +65,9 @@ median/              Core library, imported by app/ and pipeline/
   browse.py          Catalog search/filter and the Work page data (links, similar vibe)
   shelves.py         Persona shelves and ratings (each write recomputes the taste vector)
   taste.py           Persona taste-vector math and the taste profile
+  feedback.py        Thumbs up/down on recommendations (moves the taste vector)
   llm.py             Anthropic + OpenAI wrappers, usage logging, retries
-  agent.py           Chat agent loop and tool definitions
+  agent.py           Chat agent: vibe-first prompt, tool loop, tools, guardrails
   prompts/           Prompt templates (.md), see docs/PROMPTS.md
 pipeline/            Offline catalog build, run from the command line
   build.py           Orchestrates every step; supports --sample and --step

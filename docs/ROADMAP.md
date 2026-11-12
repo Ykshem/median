@@ -72,11 +72,18 @@ vibe and the Taste profile for all four personas.
 
 ## M4 — Chat agent
 Owner: _TBD_
-- [ ] `median/agent.py`: tool loop, six tools, `present_recommendations` validation
-- [ ] Chat page with streaming and recommendation cards
-- [ ] 👍/👎 feedback updates the taste vector
+
+Status: the vibe-first chat is built and was run against the real sample catalog with the live
+models (about $0.004 for four turns). It asks what vibe the user wants (picker chips or free text),
+then recommends mixed movies and books. **Open:** the Sonnet "Why?" button. The guardrail tests use a
+scripted fake model rather than recorded real responses. Eval after adding `mood_weight` to
+`for_persona`: adaptation recall@10 1.000, vibe recall@10 0.531, medium mixing 0.327 (all unchanged).
+
+- [x] `median/agent.py`: tool loop, six tools, `present_recommendations` validation
+- [x] Chat page with streaming and recommendation cards (vibe picker, per-persona conversation)
+- [x] 👍/👎 feedback updates the taste vector (`median/feedback.py`)
 - [ ] "Why?" explanations with Sonnet + cache
-- [ ] Guardrail tests with recorded LLM responses
+- [x] Guardrail tests with a scripted fake model (`tests/test_agent_guardrails.py`)
 
 ## M5 — Full catalog and demo
 Owner: _TBD_

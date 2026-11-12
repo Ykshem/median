@@ -137,3 +137,62 @@ class FakeConcurrentClient:
             content=[SimpleNamespace(type="text", text=text)],
             usage=SimpleNamespace(input_tokens=tokens_in, output_tokens=tokens_out),
         )
+
+
+# Streaming + tool use (the chat agent) -----------------------------------------------------------
+
+
+def text_block(text: str) -> Any:
+    return SimpleNamespace(type="text", text=text)
+
+
+def tool_use_block(name: str, tool_input: dict[str, Any], tool_id: str = "toolu_1") -> Any:
+    return SimpleNamespace(type="tool_use", id=tool_id, name=name, input=tool_input)
+
+
+def agent_message(*blocks: Any, input_tokens: int = 300, output_tokens: int = 60) -> Any:
+    """A model reply made of text and tool_use blocks."""
+    return SimpleNamespace(
+        content=list(blocks),
+        usage=SimpleNamespace(input_tokens=input_tokens, output_tokens=output_tokens),
+    )
+
+
+class _FakeStream:
+    def __init__(self, message: Any) -> None:
+        self._message = message
+
+    def __enter__(self) -> _FakeStream:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        return None
+
+    @property
+    def text_stream(self):
+        for block in self._message.content:
+            if block.type == "text":
+                middle = len(block.text) // 2
+                yield from (block.text[:middle], block.text[middle:])
+
+    def get_final_message(self) -> Any:
+        return self._message
+
+
+class FakeStreamingAnthropic:
+    """A fake client for `messages.stream(...)`: replies (or raises) from a script, in order.
+
+    `calls` holds each request's kwargs, with the message list copied so later turns of the agent
+    loop can't change what an earlier call looked like.
+    """
+
+    def __init__(self, items: list[Any]) -> None:
+        self._script = _Script(items)
+        self.messages = SimpleNamespace(stream=self._stream)
+
+    def _stream(self, **kwargs: Any) -> _FakeStream:
+        return _FakeStream(self._script.next({**kwargs, "messages": list(kwargs["messages"])}))
+
+    @property
+    def calls(self) -> list[dict[str, Any]]:
+        return self._script.calls

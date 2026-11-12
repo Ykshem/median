@@ -9,7 +9,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from median import shelves
+from median import feedback, shelves
 from median.db import connect, ensure_db, list_personas
 from median.models import VibeCard, Work
 
@@ -127,6 +127,52 @@ def render_work_card(
                 st.caption(f"• {reason}")
         if controls and persona_id is not None:
             render_shelf_controls(persona_id, work.id, key=key)
+
+
+def _on_vote(persona_id: int, work_id: int, signal: str) -> None:
+    """Record a thumbs vote; pressing the active vote again clears it."""
+    with db_conn() as conn:
+        current = feedback.get_signal(conn, persona_id, work_id)
+        feedback.set_signal(conn, persona_id, work_id, None if current == signal else signal)
+
+
+def render_recommendation_card(
+    work: Work,
+    *,
+    key: str,
+    persona_id: int,
+    blurb: str = "",
+    reasons: list[str] | None = None,
+) -> None:
+    """Render a recommended work: cover, title link, the agent's blurb, reasons and 👍/👎 buttons.
+
+    A vote is saved at once and moves the persona's taste vector. `key` must be unique on the page.
+    """
+    with db_conn() as conn:
+        vote = feedback.get_signal(conn, persona_id, work.id)
+    with st.container(border=True):
+        cover, body = st.columns([1, 3])
+        with cover:
+            render_cover(work, width=80)
+        with body:
+            work_link(work, label=work.title)
+            st.caption(work_meta(work))
+            if blurb:
+                st.markdown(blurb)
+            for reason in reasons or []:
+                st.caption(f"• {reason}")
+        up, down, _ = st.columns([1, 1, 6])
+        for column, signal, icon in ((up, "up", "👍"), (down, "down", "👎")):
+            column.button(
+                icon,
+                key=f"vote-{signal}-{key}-{persona_id}-{work.id}",
+                type="primary" if vote == signal else "secondary",
+                on_click=_on_vote,
+                args=(persona_id, work.id, signal),
+                help="Good pick: show me more like this"
+                if signal == "up"
+                else "Not for me: show me less like this",
+            )
 
 
 def render_vibe_card(card: VibeCard) -> None:

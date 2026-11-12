@@ -237,3 +237,25 @@ def test_count_vectors(mini_catalog, db: sqlite3.Connection):
     assert browse.count_vectors(db) == 20
     db.execute("DELETE FROM vec_vibes")
     assert browse.count_vectors(db) == 0
+
+
+# Vibe words and semantic search (the chat agent) -------------------------------------------------
+
+
+def test_list_themes_counts_theme_words_across_cards(db, mini_catalog) -> None:
+    themes = browse.list_themes(db, limit=5)
+    assert 0 < len(themes) <= 5
+    assert all(t == t.lower() for t in themes)
+    assert len(set(browse.list_themes(db, limit=500))) > len(themes)
+
+
+def test_semantic_search_returns_the_nearest_works_best_first(db, mini_catalog) -> None:
+    from tests.fixtures.catalog import cluster_centroid
+
+    haunted = cluster_centroid(mini_catalog["clusters"]["haunted"])
+    ids = browse.semantic_search(db, haunted, limit=4)
+    assert set(ids) == {1, 2, 11, 12}
+    books = browse.semantic_search(db, haunted, "book", limit=2)
+    assert set(books) == {11, 12}
+    with pytest.raises(ValueError):
+        browse.semantic_search(db, haunted, "tv")

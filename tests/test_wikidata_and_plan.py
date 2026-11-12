@@ -153,6 +153,7 @@ def _select(spec: SampleSpec, **overrides):
         wikidata_pairs=wikidata_pairs,
         reading_counts={f"/works/OL{i}W": 10_000 - i for i in range(1, 400)},
         has_description=lambda ids: {i: True for i in ids},
+        is_fiction=lambda ids: {i: True for i in ids},
         discover_movies=lambda n: list(range(5000, 5000 + n)),
     )
     base.update(overrides)
@@ -220,3 +221,52 @@ def test_movie_fill_does_not_duplicate_pair_films() -> None:
     # discover returns the paired films too; they must not be counted twice
     plan = _select(SMALL, discover_movies=lambda n: [1001, 1002, *range(7000, 7000 + n)])
     assert len(plan.movies) == len(set(plan.movies)) == 60
+
+
+# Fiction-only books (ADR 0002) ------------------------------------------------------------------
+
+
+def _fiction_except(*banned: str):
+    return lambda ids: {i: i not in banned for i in ids}
+
+
+def test_nonfiction_books_never_enter_the_plan() -> None:
+    banned = {f"OL{i}W" for i in range(1, 40, 2)}  # every other book, pair partners included
+    plan = _select(SMALL, is_fiction=_fiction_except(*banned))
+    assert not set(plan.books) & banned
+    assert not {b for _, b in plan.pairs} & banned
+    assert len(plan.books) == SMALL.books  # the fill goes further down the list instead
+
+
+def test_a_nonfiction_pair_partner_is_replaced_by_the_next_most_read() -> None:
+    plan = _select(SMALL, is_fiction=_fiction_except("OL1W"))
+    assert "OL1W" not in plan.books and (1001, "OL1W") not in plan.pairs
+    assert "OL11W" in plan.books  # pairs run through books by reading count, so OL11W is still in
+
+
+def test_a_forced_nonfiction_book_and_its_pairs_are_dropped(caplog) -> None:
+    plan = _select(
+        SMALL,
+        forced_books=["OL900W", "OL901W"],
+        forced_pairs=[(9001, "OL900W")],
+        is_fiction=_fiction_except("OL900W"),
+    )
+    assert "OL900W" not in plan.books and (9001, "OL900W") not in plan.pairs
+    assert "OL901W" in plan.books  # a forced fiction book still goes in
+    assert 9001 not in plan.movies
+    assert "OL900W" in caplog.text
+
+
+def test_the_fiction_check_is_only_asked_about_books_that_could_be_selected() -> None:
+    asked: list[str] = []
+
+    def is_fiction(ids):
+        asked.extend(ids)
+        return {i: True for i in ids}
+
+    no_desc = {"OL2W", "OL3W"}
+    _select(
+        SMALL, is_fiction=is_fiction, has_description=lambda ids: {i: i not in no_desc for i in ids}
+    )
+    assert not set(asked) & no_desc  # the model is never paid to judge an unusable book
+    assert len(asked) == len(set(asked))

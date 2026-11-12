@@ -8,6 +8,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from median import taste
+from median.db import rebuild_fts
 from pipeline.sample_plan import bare_id
 from pipeline.sample_seed import upsert_work
 from pipeline.sources import SkipWork
@@ -72,6 +74,40 @@ def load_openlibrary_books(
         report.loaded += 1
     conn.commit()
     return report
+
+
+def prune_books(conn: sqlite3.Connection, keep_ol_ids: list[str]) -> list[str]:
+    """Delete every book whose Open Library id is not in `keep_ol_ids`; return their titles.
+
+    The catalog's books are exactly the plan's books (fiction only, ADR 0002), so a book that has
+    left the plan, for example because it is not fiction, must go, along with everything that
+    points at it: links, vibe card and vector, shelf rows, feedback and cached explanations.
+    Movies are never touched. Refuses an empty keep list, which would delete every book.
+    """
+    if not keep_ol_ids:
+        raise ValueError("refusing to prune: the list of books to keep is empty")
+    keep = {bare_id(i) for i in keep_ol_ids}
+    rows = conn.execute(
+        "SELECT w.id, w.title, e.external_id FROM works w "
+        "LEFT JOIN external_ids e ON e.work_id = w.id AND e.source = 'openlibrary' "
+        "WHERE w.media_type = 'book'"
+    ).fetchall()
+    doomed = [r for r in rows if r["external_id"] not in keep]
+    for r in doomed:
+        work_id = r["id"]
+        conn.execute("DELETE FROM shelf_items WHERE work_id = ?", (work_id,))
+        conn.execute("DELETE FROM rec_feedback WHERE work_id = ? OR seed_id = ?", (work_id,) * 2)
+        conn.execute("DELETE FROM explanations WHERE work_id = ? OR seed_id = ?", (work_id,) * 2)
+        conn.execute("DELETE FROM work_links WHERE from_work = ? OR to_work = ?", (work_id,) * 2)
+        conn.execute("DELETE FROM vec_vibes WHERE work_id = ?", (work_id,))
+        conn.execute("DELETE FROM vibe_cards WHERE work_id = ?", (work_id,))
+        conn.execute("DELETE FROM external_ids WHERE work_id = ?", (work_id,))
+        conn.execute("DELETE FROM works WHERE id = ?", (work_id,))
+    if doomed:
+        rebuild_fts(conn)
+        taste.recompute_all(conn)  # a persona may have rated a pruned book
+    conn.commit()
+    return [r["title"] for r in doomed]
 
 
 def _external_ids(conn: sqlite3.Connection, source: str) -> dict[str, int]:

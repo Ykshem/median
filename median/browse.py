@@ -12,6 +12,7 @@ import sqlite3
 from dataclasses import dataclass, field
 
 from median import recommend
+from median.db import vec_to_blob
 from median.models import Link, Recommendation, VibeCard, Work
 
 SORTS = ("relevance", "popular", "year_newest", "year_oldest", "title")
@@ -212,6 +213,30 @@ def list_moods(conn: sqlite3.Connection, limit: int = 40) -> list[str]:
         (limit,),
     )
     return [r["mood"] for r in rows]
+
+
+def list_themes(conn: sqlite3.Connection, limit: int = 40) -> list[str]:
+    """Return the most common theme words across all vibe cards (lower-case), most common first."""
+    rows = conn.execute(
+        "SELECT lower(t.value) AS theme, COUNT(*) AS n FROM vibe_cards c, "
+        "json_each(c.card_json, '$.themes') t GROUP BY theme ORDER BY n DESC, theme LIMIT ?",
+        (limit,),
+    )
+    return [r["theme"] for r in rows]
+
+
+def semantic_search(
+    conn: sqlite3.Connection, vector: list[float], media_type: str = "any", limit: int = 10
+) -> list[int]:
+    """Return ids of the works whose vibe vectors are nearest `vector`, best first."""
+    if media_type not in MEDIA_FILTERS:
+        raise ValueError(f"media_type must be one of {MEDIA_FILTERS}")
+    sql = "SELECT work_id FROM vec_vibes WHERE embedding MATCH ? AND k = ?"
+    params: list[object] = [vec_to_blob(vector), limit]
+    if media_type != "any":
+        sql += " AND media_type = ?"
+        params.append(media_type)
+    return [r["work_id"] for r in conn.execute(sql + " ORDER BY distance", params)]
 
 
 def year_bounds(conn: sqlite3.Connection) -> tuple[int, int] | None:

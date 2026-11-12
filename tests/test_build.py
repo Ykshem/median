@@ -72,17 +72,20 @@ def _wikidata_handler(request: httpx.Request) -> httpx.Response:
     return httpx.Response(200, json={"results": {"bindings": rows}})
 
 
-def _write_world(tmp_path: Path) -> Path:
-    """Twelve books (OL12W has no description), reading counts favouring low numbers."""
+def _write_world(tmp_path: Path, subjects: dict[int, list[str]] | None = None) -> Path:
+    """Twelve books (OL12W has no description), reading counts favouring low numbers.
+
+    Every book is tagged "Fiction" unless `subjects` says otherwise ({book number: subjects}).
+    """
     dumps = tmp_path / "dumps"
-    dumps.mkdir()
+    dumps.mkdir(exist_ok=True)
     works = []
     for i in range(1, 13):
         record = {
             "title": f"Book {i}",
             "authors": [{"author": {"key": f"/authors/OL{i}A"}}],
             "first_publish_date": str(1990 + i % 5),
-            "subjects": ["Fiction"],
+            "subjects": (subjects or {}).get(i, ["Fiction"]),
         }
         if i != 12:
             record["description"] = LONG + f"Book {i}."
@@ -106,6 +109,9 @@ def _card_or_verdict(request: dict) -> str:
     prompt = request["params"]["messages"][0]["content"]
     if "Decide whether the film is an adaptation" in prompt:
         return json.dumps({"is_adaptation": True, "confidence": 0.9, "reason": "credited"})
+    if "Decide whether this book is a work of fiction" in prompt:
+        # the world's "Habit" books are the factual ones; every other ambiguous book is a story
+        return json.dumps({"is_fiction": "Habit" not in prompt, "confidence": 0.9, "reason": "x"})
     return json.dumps(GOOD_CARD)
 
 
@@ -140,6 +146,7 @@ def world(db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(llm.time, "sleep", lambda s: None)
     # keep the verdict cache out of the real data/ directory
     monkeypatch.setattr(build.link_step, "CACHE_PATH", tmp_path / "verdicts.json")
+    monkeypatch.setattr(build.fiction, "CACHE_PATH", tmp_path / "fiction.json")
     ctx = build.BuildContext(
         conn=db,
         sample=True,
@@ -382,3 +389,59 @@ def test_an_out_of_credit_api_error_exits_cleanly_with_code_3(
     with caplog.at_level("ERROR"):
         assert build.main(["--sample", "--step", "embed"]) == 3
     assert "openai API error 429" in caplog.text
+
+
+# Fiction-only books (ADR 0002) ------------------------------------------------------------------
+
+FACTUAL = ["Self-help", "Psychology"]  # the subject rules call this nonfiction without the model
+
+
+def _fiction_world(world, subjects: dict[int, list[str]]):
+    ctx, anthropic, openai = world
+    _write_world(ctx.dumps_dir.parent, subjects)  # overwrite works.gz before it is first read
+    return ctx, anthropic, openai
+
+
+def test_nonfiction_books_are_left_out_of_the_plan_and_their_pairs_with_them(world) -> None:
+    ctx, _, _ = _fiction_world(world, {2: FACTUAL, 5: FACTUAL})
+    build.run_steps(ctx, ["select_sample"])
+    plan = SamplePlan.load(ctx.plan_path)
+    assert "OL2W" not in plan.books and "OL5W" not in plan.books
+    assert (2, "OL2W") not in plan.pairs  # the Wikidata pair whose book is not fiction
+    assert {"OL1W", "OL3W"} <= set(plan.books)
+
+
+def test_ambiguous_books_are_judged_by_the_model_and_only_those(world) -> None:
+    ctx, anthropic, _ = _fiction_world(
+        world,
+        {3: [], 4: [], 6: ["Habit"], 2: FACTUAL},  # 3, 4 and 6 are ambiguous
+    )
+    build.run_steps(ctx, ["select_sample"])
+    plan = SamplePlan.load(ctx.plan_path)
+    fiction_prompts = [
+        r["params"]["messages"][0]["content"]
+        for batch in anthropic.created
+        for r in batch
+        if "work of fiction" in r["params"]["messages"][0]["content"]
+    ]
+    assert len(fiction_prompts) == 3  # the rules decided every other book for free
+    assert "OL3W" in plan.books and "OL4W" in plan.books
+    assert "OL6W" not in plan.books  # the model said that one is factual
+
+
+def test_a_book_loaded_before_the_scope_change_is_pruned_from_the_catalog(world) -> None:
+    ctx, _, _ = world
+    build.run_steps(ctx, ["select_sample", "fetch_tmdb", "load_openlibrary"])
+    assert _count(ctx.conn, "SELECT COUNT(*) FROM works WHERE title = 'Book 2'") == 1
+    ctx.conn.execute("DELETE FROM meta WHERE key LIKE 'batch:%'")
+    _write_world(ctx.dumps_dir.parent, {2: FACTUAL})  # Book 2 turns out to be factual
+    for path in ctx.cache_dir.rglob("works*.jsonl"):
+        path.unlink()  # forget the projected dump records so the new subjects are read
+    build.run_steps(ctx, ["select_sample", "load_openlibrary"])
+    assert _count(ctx.conn, "SELECT COUNT(*) FROM works WHERE title = 'Book 2'") == 0
+    assert _count(ctx.conn, "SELECT COUNT(*) FROM external_ids WHERE external_id = 'OL2W'") == 0
+    assert _count(ctx.conn, "SELECT COUNT(*) FROM works WHERE media_type = 'movie'") > 0
+
+
+def test_select_sample_is_listed_as_a_step_that_can_cost_money() -> None:
+    assert "select_sample" in build.LLM_STEPS

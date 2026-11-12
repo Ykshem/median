@@ -266,11 +266,13 @@ score = 0.45 * link_strength      # adaptation 1.0 · franchise 0.8 · creator 0
 explainer uses: `"Adapted from <title>"`, `"Same series"`, `"Shared themes: grief, found family"`
 (the intersection of the two cards' themes and moods).
 
-`for_persona(conn, persona_id, target_media='any', mood_vector=None, k=10)` is the same scorer with
-no link term, seeded by the persona's taste vector blended equally with `mood_vector` (an embedding of
-the request; `embed_query` makes one) when given. With neither a taste vector nor a mood it returns
-the most popular unshelved works ("Popular pick"). Reasons use the themes and moods most common among
-the works the persona likes.
+`for_persona(conn, persona_id, target_media='any', mood_vector=None, k=10, mood_weight=1.0)` is the same
+scorer with no link term, seeded by the persona's taste vector blended with `mood_vector` (an embedding
+of the request; `embed_query` makes one) when given. `mood_weight` is how much more the request counts
+than the taste: 1.0 is equal, and the chat agent passes `AGENT_MOOD_WEIGHT` (3.0), because at 1.0 a
+cozy-mystery persona asking for "eerie, melancholic" got mostly Christie. With neither a taste vector
+nor a mood it returns the most popular unshelved works ("Popular pick"). Reasons use the themes and
+moods most common among the works the persona likes.
 
 Implementation notes:
 - `Recommendation` also carries its four components (`link`, `vibe`, `taste`, `popularity`) so a
@@ -299,7 +301,13 @@ Recompute on every rating, shelf or feedback change. It stays NULL until there a
 
 ## 6. Chat agent (`median/agent.py`)
 
-Haiku 5.5 with tool use; streamed into `st.chat_message` via `st.write_stream`.
+Haiku 5.5 with tool use (thinking off), streamed through `llm.complete_stream` into the chat page.
+**It starts with the vibe**: the Chat page opens with a greeting and a picker of the catalog's most
+common mood and theme words (`vibe_menu`, from `browse.list_moods` / `list_themes`) plus a
+Movies / Books / Both choice; typed text works too. A message with no vibe, mood or liked work gets
+one short question offering 4-6 options (no tools called). Once there is a vibe, the agent calls
+`recommend_for_persona` with a card-style `mood_query`, once per medium unless the user named one, so
+the picks mix movies and books. "Something like X" goes `search_works` then `get_overlap`.
 
 ```mermaid
 sequenceDiagram
@@ -308,17 +316,17 @@ sequenceDiagram
   participant H as Claude Haiku 5.5
   participant T as Tools (median/*)
   participant DB as SQLite
-  U->>A: message + persona_id
-  A->>H: system prompt + persona summary + history + tools
-  loop up to 5 tool rounds
-    H->>A: tool_use (e.g. get_overlap)
+  U->>A: message (typed, or the picked vibes) + persona_id + history
+  A->>H: system prompt (persona, taste, vibe menu) + history + tools
+  loop up to 5 model calls
+    H->>A: tool_use (e.g. recommend_for_persona)
     A->>T: call with validated args
     T->>DB: SQL / KNN
     DB-->>T: rows
-    T-->>A: compact JSON (ids + short facts)
+    T-->>A: compact JSON in <work_data> (ids + short facts)
     A->>H: tool_result
   end
-  H->>A: present_recommendations(work_ids, blurbs) + short reply text
+  H->>A: reply text + present_recommendations(work_ids, blurbs)
   A->>A: drop any id not returned by tools this turn
   A-->>U: streamed text + cards rendered from DB rows
 ```
@@ -327,24 +335,35 @@ sequenceDiagram
 
 | Tool | Arguments | Returns |
 | --- | --- | --- |
-| `search_works` | `query`, `media_type` (movie/book/any), `limit≤10` | FTS5 title/creator matches, then semantic matches |
-| `get_work` | `work_id` | Title, year, creators, vibe card, links |
+| `search_works` | `query`, `media_type` (movie/book/any), `limit≤10` | FTS5 title/creator matches, then (if short of `limit`) semantic matches |
+| `get_work` | `work_id` | Title, year, creators, vibe card fields, verified links |
 | `get_overlap` | `work_id`, `target_media`, `limit≤10` | `recommend.overlap(...)` with reasons |
-| `recommend_for_persona` | `target_media`, `mood_query?`, `limit≤10` | `recommend.for_persona(...)` |
-| `get_persona_shelf` | `shelf?` | The persona's shelved works and ratings |
-| `present_recommendations` | `work_ids` (≤6), `blurbs` {id: 1 sentence} | **Final step**: the UI renders these |
+| `recommend_for_persona` | `target_media`, `mood_query?`, `limit≤10` | `recommend.for_persona(..., mood_weight=AGENT_MOOD_WEIGHT)` |
+| `get_persona_shelf` | `shelf?` | The persona's shelved works and ratings (first 20) |
+| `present_recommendations` | `work_ids` (≤6), `blurbs` {id: 1 sentence} | **Final step**: handled by the loop, not a lookup; the UI renders these |
 
 **Guardrails**
-- Max 5 tool rounds per turn, max ~4k input tokens of tool results (truncate lists).
-- `present_recommendations` IDs must be a subset of IDs returned by tools in this turn; drop any
-  others and log a warning (tested in `tests/test_agent_guardrails.py`).
-- Catalog text goes inside `<work_data>` tags; the system prompt says to treat it as data.
-- On API failure: retry up to 3 times with backoff (tenacity), then show a friendly error; browsing
-  still works offline.
+- At most 5 model calls per turn. A tool result is rendered as JSON, then items are dropped from the
+  end until it fits `AGENT_TOOL_RESULT_CHARS` (about 3-4k tokens); dropped items count as unseen.
+- `present_recommendations` IDs must be a subset of IDs the tools returned in this turn (a work's
+  links count too); others are dropped and logged. If none survive, the model gets an error result
+  and can search again. At most 6 cards. Tested in `tests/test_agent_guardrails.py`.
+- Catalog text goes inside `<work_data>` tags (with `<` and `>` escaped so it can't close the tag), and
+  the system prompt says to treat it as data. Bad tool arguments come back to the model as errors.
+- If the model shows cards but writes no text, `default_reply` states the movie/book split.
+- Errors never reach the user as tracebacks: the daily budget, a missing key, and API failures (after
+  3 tenacity retries; a stream is retried only before any text was delivered) become a short message,
+  and browsing still works offline.
+- History sent to the model is the last 12 text messages; an assistant message that showed cards ends
+  with `[Cards shown to the user: ...]` so follow-ups ("darker", "only books") have context.
+- Every message is logged to `chat_messages` (`recommended_ids` holds the shown cards).
 
-**Explanations:** a "Why?" button on any card calls Sonnet 5.5 with the persona summary, the seed's
-and the target's vibe cards, the link facts and the reasons. It returns 2–3 sentences, cached in
-`explanations`.
+**Feedback:** each card has 👍/👎 (`median/feedback.py`). A vote is one row per persona and work, so
+voting again replaces it and pressing the active one clears it; every change recomputes the taste vector.
+
+**Explanations (not built yet):** a "Why?" button on any card calls Sonnet 5.5 with the persona
+summary, the seed's and the target's vibe cards, the link facts and the reasons. It returns 2–3
+sentences, cached in `explanations`.
 
 ---
 
@@ -400,13 +419,13 @@ batch prices, embeddings ≈ $0.01).
 | `pages/1_Browse.py` | Search and filter the catalog (media type, year, mood) |
 | `pages/2_Work.py` | Work detail: cover, vibe card, **Linked** (adaptations/franchise) and **Similar vibe** (other medium) sections, shelf + rating controls |
 | `pages/3_Shelves.py` | Persona shelves: want / in progress / finished / favorite |
-| `pages/4_Chat.py` | Chat with the agent; recommendation cards with 👍/👎 and "Why?" |
+| `pages/4_Chat.py` | Vibe-first chat: greeting, vibe picker (moods and themes from the catalog) and medium choice, then streamed replies with recommendation cards and 👍/👎. One conversation per persona, kept for the browser session; "Start over" in the sidebar clears it. ("Why?" is not built yet) |
 | `pages/5_Taste.py` | Taste profile: top themes and moods from the taste vector's nearest cards, rating history |
 | `pages/6_Credits.py` | TMDB attribution + logo, Open Library and Wikidata credits |
 
 The sidebar persona picker appears on every page. Shared rendering lives in `app/components.py`
 (page setup, persona picker, per-rerun `db_conn()`, work card, vibe-card display, and the shelf and
-rating controls; the recommendation card arrives with the chat page in M4).
+rating controls, and the recommendation card with its 👍/👎 buttons).
 
 **Library behind the pages** (all SQL lives here, not in `app/`):
 - `median/browse.py`: `search_works` / `count_matches` (FTS5 title and creator search, medium, year
@@ -446,7 +465,7 @@ puts the script's own folder on `sys.path`, so without the install `median` woul
 | `MEDIAN_DB_PATH` | Default `data/median.db` |
 | `DAILY_USD_LIMIT` | Hard stop for LLM spend per day (default `2`) |
 
-Constants in `config.py`: `AGENT_MODEL="claude-haiku-5-5"`, `EXPLAIN_MODEL="claude-sonnet-5-5"`,
+Constants in `config.py`: `AGENT_MODEL="claude-haiku-5-5"`, the `AGENT_*` chat limits (`AGENT_MOOD_WEIGHT`, rounds, result size, cards, vibe menu size), `EXPLAIN_MODEL="claude-sonnet-5-5"`,
 `EMBED_MODEL="text-embedding-3-small"`, `EMBED_DIMS=1536`, `VIBE_PROMPT_VERSION`,
 `SCHEMA_VERSION`, score weights, price table for `llm_usage.cost_usd`.
 

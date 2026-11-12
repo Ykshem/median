@@ -24,15 +24,16 @@ GOLD_DIR = REPO_ROOT / "tests" / "eval"
 GOLD_ADAPTATIONS_PATH = GOLD_DIR / "gold_adaptations.csv"
 GOLD_VIBES_PATH = GOLD_DIR / "gold_vibes.csv"
 
-# Models ---------------------------------------------------------------------------------------
+# Models -----------------------------------------------------------------------------------------
 AGENT_MODEL = "claude-haiku-5-5"
 EXPLAIN_MODEL = "claude-sonnet-5-5"
 EMBED_MODEL = "text-embedding-3-small"
 EMBED_DIMS = 1536
 
-# Versions: bump to force regeneration / rebuild --------------------------------------------------
+# Versions: bump to force regeneration / rebuild -------------------------------------------------
 VIBE_PROMPT_VERSION = "v1"
 LINK_PROMPT_VERSION = "v1"
+FICTION_PROMPT_VERSION = "v1"
 SCHEMA_VERSION = 2  # v2: works.popularity_raw
 
 # Recommendation scoring (ARCHITECTURE.md section 5) ---------------------------------------------
@@ -46,6 +47,17 @@ KNN_CANDIDATES = 100  # vibe neighbours considered per query
 MAX_PER_FRANCHISE = 2  # at most this many results from one franchise in a result list
 TASTE_REASON_MIN = 0.35  # taste similarity needed before a result says it fits the persona's taste
 MAX_REASON_THEMES = 3
+
+# Chat agent (ARCHITECTURE.md section 6) ---------------------------------------------------------
+AGENT_MAX_ROUNDS = 5  # model calls per user turn (each tool round is one)
+AGENT_MAX_TOKENS = 1024  # output cap per model call
+AGENT_TOOL_RESULT_CHARS = 12_000  # ~3-4k tokens: a tool result is trimmed to fit
+AGENT_MAX_PRESENTED = 6  # cards per reply
+AGENT_VIBE_MENU = 24  # mood and theme words offered to the user as vibe options
+# How much more a typed or picked vibe counts than the persona's taste (1.0 = equal). Measured on
+# the sample catalog: at 1.0 a cozy-mystery persona asking for "eerie, melancholic" got mostly
+# Christie; at 2-3 the gothic and brooding works came first and the taste still tinted the list.
+AGENT_MOOD_WEIGHT = 3.0
 
 # Taste vector weights (ARCHITECTURE.md section 5): a weighted mean of the vibe vectors of works the
 # persona has interacted with. A rating r in 1..10 weighs (r - 5.5) / 4.5, i.e. -1..+1.
